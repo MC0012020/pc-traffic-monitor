@@ -106,7 +106,6 @@ func refreshFloat() {
 	}
 	ld, rd := cachedText[proxyDay], cachedText[directDay]
 	if ld == "" { ld = "—" }; if rd == "" { rd = "—" }
-	ld, rd = "今日 " + ld, "今日 " + rd
 	if l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
 		return
 	}
