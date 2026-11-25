@@ -10,7 +10,7 @@ var floatWindow uintptr
 var floatDragging, floatMoved bool
 var floatAnchor, floatStart, floatOld point
 var floatWidth, floatDivider, floatRightX int
-var floatLeftText, floatRightText string
+var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
 type monitorInfo struct {
 	Size          uint32
@@ -66,7 +66,10 @@ func measureFloat() {
 	}
 	defer user.NewProc("ReleaseDC").Call(mainWindow, dc)
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, floatFont)
-	floatWidth, floatDivider, floatRightX = floatDimensions(floatMeasure(dc, floatLeftText), floatMeasure(dc, floatRightText))
+	left, right := floatMeasure(dc, floatLeftText), floatMeasure(dc, floatRightText)
+	gdi.NewProc("SelectObject").Call(dc, smallFont)
+	left, right = max(left, floatMeasure(dc, floatLeftDay)), max(right, floatMeasure(dc, floatRightDay))
+	floatWidth, floatDivider, floatRightX = floatDimensions(left, right)
 	gdi.NewProc("SelectObject").Call(dc, old)
 }
 func floatPlace() {
@@ -101,10 +104,13 @@ func refreshFloat() {
 	if r == "" {
 		r = "—"
 	}
-	if l == floatLeftText && r == floatRightText && floatWidth > 0 {
+	ld, rd := cachedText[proxyDay], cachedText[directDay]
+	if ld == "" { ld = "—" }; if rd == "" { rd = "—" }
+	ld, rd = "今日 " + ld, "今日 " + rd
+	if l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
 		return
 	}
-	floatLeftText, floatRightText = l, r
+	floatLeftText, floatRightText, floatLeftDay, floatRightDay = l, r, ld, rd
 	oldWidth := floatWidth
 	measureFloat()
 	if oldWidth != floatWidth {
@@ -194,8 +200,10 @@ func floatPaint(h uintptr) {
 	gdi.NewProc("SelectObject").Call(dc, old)
 	gdi.NewProc("DeleteObject").Call(pen)
 	floatLine(dc, floatDivider, 8, 1, floatHeight-16, lineBrush)
-	floatText(dc, floatLeftText, floatPadding, 0, floatDivider-floatGap-floatPadding, floatHeight, floatFont, orange)
-	floatText(dc, floatRightText, floatRightX, 0, floatWidth-floatRightX-floatPadding, floatHeight, floatFont, green)
+	floatText(dc, floatLeftText, floatPadding, 5, floatDivider-floatGap-floatPadding, 23, floatFont, orange)
+	floatText(dc, floatRightText, floatRightX, 5, floatWidth-floatRightX-floatPadding, 23, floatFont, green)
+	floatText(dc, floatLeftDay, floatPadding, 28, floatDivider-floatGap-floatPadding, 18, smallFont, orange)
+	floatText(dc, floatRightDay, floatRightX, 28, floatWidth-floatRightX-floatPadding, 18, smallFont, green)
 }
 func floatProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	switch m {

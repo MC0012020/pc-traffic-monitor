@@ -29,7 +29,7 @@ func initButtonTips() {
 		return
 	}
 	setPos.Call(buttonTips, ^uintptr(0), 0, 0, 0, 0, 0x0013)
-	for h, label := range map[uintptr]string{topButton: "取消置顶"} {
+	for h, label := range map[uintptr]string{topButton: "取消置顶", updateButton: "软件更新"} {
 		if h == 0 {
 			continue
 		}

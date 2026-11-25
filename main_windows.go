@@ -202,9 +202,10 @@ func layoutWindow() {
 	if w < 1 || h < 1 {
 		return
 	}
-	moveControl(titleLabel, 16, 10, w-80, 29)
+	moveControl(titleLabel, 16, 10, w-126, 29)
 	moveControl(status, 16, 40, w-32, 21)
 	moveControl(topButton, w-57, 10, 40, 29)
+	moveControl(updateButton, w-103, 10, 40, 29)
 	moveControl(horizontalLine, 16, 67, w-32, 1)
 	moveControl(verticalLine, w/2, 81, 1, 105)
 	for i := 0; i < 2; i++ {
@@ -255,6 +256,8 @@ func initControls() {
 	titleLabel = colored("网络流量监控", 16, 10, 310, 29, largeFont, dark)
 	status = colored("正在启动 Windows 网络采集…", 16, 40, 672, 21, smallFont, muted)
 	topButton = btn("置顶", 647, 10, 40, 29, idTop)
+	updateButton = btn("更新", 601, 10, 40, 29, idUpdate)
+	visible(updateButton, false)
 	horizontalLine = block(16, 67, 672, 1, lineBrush)
 	verticalLine = block(352, 81, 1, 105, lineBrush)
 	for i := 0; i < 2; i++ {
@@ -336,7 +339,7 @@ func updateView(u Update) {
 }
 func msg(s string) {
 	p, _ := syscall.UTF16PtrFromString(s)
-	title, _ := syscall.UTF16PtrFromString("网络流量监控 V3.12")
+	title, _ := syscall.UTF16PtrFromString("网络流量监控 V"+appVersion())
 	user.NewProc("MessageBoxW").Call(mainWindow, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(title)), 0x40)
 	runtime.KeepAlive(p)
 	runtime.KeepAlive(title)
@@ -575,7 +578,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		r := d.Rect
 		fill := paleBrush
-		if d.Hwnd == topButton && top {
+		if (d.Hwnd == topButton && top) || d.Hwnd == updateButton {
 			fill = pinActiveBrush
 		}
 		if d.State&1 != 0 {
@@ -588,6 +591,10 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		gdi.NewProc("RoundRect").Call(d.DC, uintptr(r.L), uintptr(r.T), uintptr(r.R), uintptr(r.B), 12, 12)
 		gdi.NewProc("SelectObject").Call(d.DC, old)
 		gdi.NewProc("SelectObject").Call(d.DC, oldPen)
+		if d.Hwnd == updateButton {
+			drawUpdateIcon(d.DC, r)
+			return 1
+		}
 		if d.Hwnd == topButton {
 			drawPinIcon(d.DC, r, top)
 			return 1
@@ -624,6 +631,8 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 			changeDisplay(actionExit)
 		case idTrayFloat:
 			changeDisplay(actionFloat)
+		case idUpdate:
+			startUpdate()
 		case idTop:
 			top = !top
 			setTop()
@@ -638,6 +647,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
+		pollUpdateUI()
 		select {
 		case u := <-updates:
 			updateView(u)
@@ -704,6 +714,7 @@ type message struct {
 
 func main() {
 	runtime.LockOSThread()
+	if len(os.Args)>1 && os.Args[1]=="--apply-update" { applyUpdateHelper(os.Args); return }
 	// ETW system logger requires elevated rights. Request them through the standard Windows UAC prompt.
 	admin, _, _ := isAdmin.Call()
 	if admin == 0 {
@@ -738,7 +749,7 @@ func main() {
 	paleBrush = brush(0xf5f2ef)
 	pinActiveBrush = brush(0xe9f5eb)
 	cn, _ := syscall.UTF16PtrFromString("PcTrafficMonitorV31Window")
-	title, _ := syscall.UTF16PtrFromString("网络流量监控 V3.12")
+	title, _ := syscall.UTF16PtrFromString("网络流量监控 V"+appVersion())
 	cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32512)
 	icon, _, _ := user.NewProc("LoadIconW").Call(instance, 1)
 	if icon == 0 {
@@ -763,7 +774,9 @@ func main() {
 	trayReady = notifyTray(0)
 	taskbarName, _ := syscall.UTF16PtrFromString("TaskbarCreated")
 	taskbarCreated, _, _ = user.NewProc("RegisterWindowMessageW").Call(uintptr(unsafe.Pointer(taskbarName)))
+	if len(os.Args)==3 && os.Args[1]=="--cleanup-update" { go cleanupUpdate(os.Args[2]) }
 	go runWorker(settings, updates, done, stopped)
+	go updateCheckLoop()
 	user.NewProc("SetTimer").Call(mainWindow, 1, 250, 0)
 	showWindow.Call(mainWindow, 5)
 	user.NewProc("UpdateWindow").Call(mainWindow)

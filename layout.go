@@ -54,7 +54,7 @@ func minTableHeight(header, row int) int {
 }
 
 // The capsule is sized from the two measured text extents, not fixed columns.
-const floatHeight = 32
+const floatHeight = 52
 const floatPadding = 9
 const floatGap = 8
 
