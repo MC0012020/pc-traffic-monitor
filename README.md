@@ -10,7 +10,7 @@
 
 [前往 Releases 下载](https://github.com/MC0012020/pc-traffic-monitor/releases)
 
-下载 `PcTrafficMonitor_V3.13.2_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.2.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
+下载 `PcTrafficMonitor_V3.13.3_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.3.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
 
 ## 功能与操作
 

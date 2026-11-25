@@ -51,7 +51,7 @@ var exitRequested bool
 var proxyState, localState uintptr
 var headerBtns = map[uintptr]bool{}
 var paleBrush uintptr
-var numberFont, smallFont, floatFont uintptr
+var numberFont, smallFont, floatFont, titleFont uintptr
 
 const windowStyle = 0x00CF0000 // WS_OVERLAPPEDWINDOW: sizing frame, maximize and restore
 var titleLabel, horizontalLine, verticalLine uintptr
@@ -161,8 +161,11 @@ func edit(s string, x, y, w, h int, style uint32) uintptr {
 	return ctrl("EDIT", s, wsBorder|wsTabstop|style, x, y, w, h, 0, 0)
 }
 func makeFont(height int, weight int) uintptr {
+	return makeFontQuality(height, weight, 5)
+}
+func makeFontQuality(height, weight int, quality uintptr) uintptr {
 	p, _ := syscall.UTF16PtrFromString("Microsoft YaHei UI")
-	r, _, _ := gdi.NewProc("CreateFontW").Call(uintptr(-height), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(p)))
+	r, _, _ := gdi.NewProc("CreateFontW").Call(uintptr(-height), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, quality, 0, uintptr(unsafe.Pointer(p)))
 	runtime.KeepAlive(p)
 	return r
 }
@@ -202,10 +205,11 @@ func layoutWindow() {
 	if w < 1 || h < 1 {
 		return
 	}
-	moveControl(titleLabel, 16, 10, w-126, 29)
+	const headerY, headerH = 10, 29
+	moveControl(titleLabel, 16, headerY, w-126, headerH)
 	moveControl(status, 16, 40, w-32, 21)
-	moveControl(topButton, w-57, 10, 40, 29)
-	moveControl(updateButton, w-103, 10, 40, 29)
+	moveControl(topButton, w-57, headerY, 40, headerH)
+	moveControl(updateButton, w-103, headerY, 40, headerH)
 	moveControl(horizontalLine, 16, 67, w-32, 1)
 	moveControl(verticalLine, w/2, 81, 1, 105)
 	for i := 0; i < 2; i++ {
@@ -253,7 +257,11 @@ func initControls() {
 	numberFont = makeFont(30, 700)
 	smallFont = makeFont(13, 400)
 	floatFont = makeFont(15, 500)
-	titleLabel = colored("网络流量监控", 16, 10, 310, 29, largeFont, dark)
+	// Keep the heading independently sized and grayscale-antialiased to avoid
+	// colored subpixel fringes; vertically center it in the button row.
+	titleFont = makeFontQuality(18, 500, 4)
+	titleLabel = ctrl("STATIC", "网络流量监控", 0x4280, 16, 10, 310, 29, 0, titleFont)
+	colors[titleLabel] = dark
 	status = colored("正在启动 Windows 网络采集…", 16, 40, 672, 21, smallFont, muted)
 	topButton = btn("置顶", 647, 10, 40, 29, idTop)
 	updateButton = btn("更新", 601, 10, 40, 29, idUpdate)
@@ -799,7 +807,7 @@ func main() {
 	}
 	gdi.NewProc("DeleteObject").Call(font)
 	gdi.NewProc("DeleteObject").Call(largeFont)
-	for _, r := range []uintptr{numberFont, smallFont, floatFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, pinActiveBrush} {
+	for _, r := range []uintptr{numberFont, smallFont, floatFont, titleFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, pinActiveBrush} {
 		gdi.NewProc("DeleteObject").Call(r)
 	}
 }
