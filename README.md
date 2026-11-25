@@ -10,7 +10,7 @@
 
 [前往 Releases 下载](https://github.com/MC0012020/pc-traffic-monitor/releases)
 
-下载 `PcTrafficMonitor_V3.13.8_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.8.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
+下载 `PcTrafficMonitor_V3.13.9_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.9.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
 
 ## 功能与操作
 
@@ -27,7 +27,7 @@
 
 ## 统计口径和隐私
 
-本地侧使用 Windows ETW TCP/UDP IPv4/IPv6 收发事件，包含局域网及回环；代理侧使用 Mihomo `/connections` 与 `/proxies` 的字节增量。通过进程、监听端口、源地址端口、Fake-IP、虚拟接口路由排除已识别的重复代理传输，Mihomo DIRECT 计入本地。短连接、TUN、自定义接口、其他 VPN、端口重用及 ETW 丢失事件可能影响分类；非 TCP/UDP 协议不在 ETW 范围内，回环两端事件可能重复计量。因此不保证与服务商账单或物理网卡字节完全一致。不会将未知出口强行计为代理。
+本地侧使用 Windows ETW TCP/UDP IPv4/IPv6 收发事件，包含局域网及回环；代理侧使用 Mihomo `/connections` 与 `/proxies` 的字节增量。通过已确认的代理核心进程、TCP 回环监听端口及完整 TCP/UDP 地址端口匹配去重，不再按通用虚拟网卡或单个源端口排除网络事件。Mihomo DIRECT 计入本地，不能可靠归类的字节保存在独立内部计数中，状态栏提示未归类及采集损失。短连接、TUN、自定义接口、其他 VPN、端口重用及 ETW 丢失事件可能影响分类；非 TCP/UDP 协议不在 ETW 范围内，回环两端事件可能重复计量。因此不保证与服务商账单或物理网卡字节完全一致。不会将未知出口强行计为代理。
 
 仅统计程序运行期间。今日数据保存在 `%LOCALAPPDATA%\PcTrafficMonitorV31\daily.json`，每 5 秒保存；近期连接记录只在内存保留。没有遥测或远程上传功能；更新仅访问公开 GitHub 发布资源。本地 API 密钥只用于本机连接。
 
@@ -49,7 +49,7 @@ GitHub Actions 自动运行测试及 Windows 构建，将 EXE、便携 ZIP、SHA
 
 ## 验证状态
 
-GitHub Actions 运行统计、布局、版本比较与校验测试并编译 Windows x64 GUI EXE。尚未在真实 Windows 桌面验证界面、ETW 采集及托盘操作；因此标记为预发布。下载后可以用 PowerShell 的 `Get-FileHash -Algorithm SHA256` 与 Release 中的 `SHA256SUMS.txt` 比对。
+GitHub Actions 运行统计、布局、版本比较、ETW ABI、局域网去重及校验测试，并要求 Windows 构建机两轮真实 TCP/UDP IPv4/IPv6 回环收发测试全部通过才允许发布。回环测试不等同于用户物理网卡、真实远程桌面或 TUN 环境验证；因此仍标记为预发布。下载后可以用 PowerShell 的 `Get-FileHash -Algorithm SHA256` 与 Release 中的 `SHA256SUMS.txt` 比对。
 
 ## 授权
 

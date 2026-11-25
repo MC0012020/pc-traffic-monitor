@@ -30,7 +30,7 @@ func TestTracker(t *testing.T) {
 		t.Fatal(c)
 	}
 	c, _, _ = tr.Step(snap(300, 50, a, b), now.Add(20*time.Second), "pipe")
-	if c != (Counts{}) {
+	if c[Unknown] != (Bytes{300,50}) || c[Direct] != (Bytes{}) || c[Proxy] != (Bytes{}) {
 		t.Fatal(c)
 	}
 }
@@ -141,4 +141,12 @@ func TestRecentResizeKeepsHiddenRows(t *testing.T) {
 	if len(next) != 40 || next[0].Active || next[0].Down != "0 B/s" {
 		t.Fatal(next)
 	}
+}
+
+func TestTrackerLongGapPreservesAuthoritativeBytes(t *testing.T) {
+ var tr Tracker
+ now:=time.Now()
+ tr.Step(snap(100,20),now,"pipe")
+ c,_,sec:=tr.Step(snap(3100,1020),now.Add(20*time.Second),"pipe")
+ if c[Unknown]!=(Bytes{3000,1000})||c[Direct]!=(Bytes{})||c[Proxy]!=(Bytes{})||sec!=20{t.Fatal(c,sec)}
 }

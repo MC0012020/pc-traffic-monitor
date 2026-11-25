@@ -36,6 +36,8 @@ type Connection struct {
 		DestinationIP string `json:"destinationIP"`
 		SourceIP      string `json:"sourceIP"`
 		SourcePort    string `json:"sourcePort"`
+		DestinationPort string `json:"destinationPort"`
+		Network string `json:"network"`
 	} `json:"metadata"`
 }
 
@@ -109,7 +111,8 @@ func (t *Tracker) Step(s Snapshot, now time.Time, source string) (Counts, []Acti
 	var rows []Activity
 	total, hasTotal := s.total()
 	elapsed := now.Sub(t.At).Seconds()
-	baseline := t.At.IsZero() || t.Source != source || elapsed <= 0 || elapsed > 5 || (hasTotal && t.HasTotal && (total.Down < t.Total.Down || total.Up < t.Total.Up))
+	baseline := t.At.IsZero() || t.Source != source || elapsed <= 0 || (hasTotal && t.HasTotal && (total.Down < t.Total.Down || total.Up < t.Total.Up))
+	gap := !baseline && elapsed > 5
 	next := make(map[string]Connection, len(s.Connections))
 	for _, c := range s.Connections {
 		if c.ID == "" {
@@ -117,7 +120,7 @@ func (t *Tracker) Step(s Snapshot, now time.Time, source string) (Counts, []Acti
 		}
 		next[c.ID] = c
 		var delta Bytes
-		if !baseline {
+		if !baseline && !gap {
 			if old, ok := t.Last[c.ID]; ok {
 				delta = c.bytes().sub(old.bytes())
 			} else if !c.Start.IsZero() && !c.Start.Before(t.At) {
@@ -131,6 +134,8 @@ func (t *Tracker) Step(s Snapshot, now time.Time, source string) (Counts, []Acti
 		}
 		rows = append(rows, Activity{c, delta})
 	}
+	// A long sampling gap still has an authoritative total. Preserve it
+	// in Unknown instead of inventing a route or dropping the bytes.
 	if !baseline && hasTotal && t.HasTotal {
 		overall := total.sub(t.Total)
 		classified := counts[0].add(counts[1]).add(counts[2])

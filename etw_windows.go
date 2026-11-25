@@ -1,10 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -42,11 +44,13 @@ type Capture struct {
 	names                    map[uint32]namedPID
 	status                   string
 	lost                     uint32
+	overflow Bytes
 	session, handle          uint64
 	props                    []byte
 	name                     *uint16
 	logfile                  *traceLogFile
 	callback, bufferCallback uintptr
+	traceDone chan struct{}
 }
 type namedPID struct {
 	Name string
@@ -85,13 +89,28 @@ func (c *Capture) getName(pid uint32) string {
 	return n
 }
 
-// EVENT_TRACE_LOGFILEW (x64). EVENT_TRACE 88 bytes; TRACE_LOGFILE_HEADER 272 bytes.
+// Windows SDK TRACE_LOGFILE_HEADER (x64): 280 bytes. In particular the
+// two pointer fields and the aligned LARGE_INTEGER fields must not use x86 offsets.
+type traceLogHeader struct {
+	BufferSize, Version, ProviderVersion, NumberOfProcessors uint32
+	EndTime int64
+	TimerResolution, MaximumFileSize, LogFileMode, BuffersWritten uint32
+	StartBuffers, PointerSize, EventsLost, CpuSpeedInMHz uint32
+	LoggerName, LogFileName uintptr
+	TimeZone [172]byte
+	_ [4]byte // alignment before the 64-bit timestamp fields
+	BootTime, PerfFreq, StartTime int64
+	ReservedFlags, BuffersLost uint32
+}
+
+// EVENT_TRACE_LOGFILEW (x64): CurrentEvent at 32, LogfileHeader at 120,
+// BufferCallback at 400, EventRecordCallback at 424, total 448 bytes.
 type traceLogFile struct {
 	LogFileName, LoggerName        *uint16
 	CurrentTime                    int64
 	BuffersRead, Mode              uint32
 	CurrentEvent                   [88]byte
-	Header                         [272]byte
+	Header                         traceLogHeader
 	BufferCallback                 uintptr
 	BufferSize, Filled, EventsLost uint32
 	_                              uint32
@@ -102,15 +121,26 @@ type traceLogFile struct {
 }
 
 func (c *Capture) setStatus(s string) { c.mu.Lock(); c.status = s; c.mu.Unlock() }
-func (c *Capture) snapshot() ([]FlowDatum, string, uint32) {
+func (c *Capture) snapshot() ([]FlowDatum, string, uint32, Bytes) {
+	if c.session != 0 {
+		p := make([]byte, len(c.props))
+		copy(p, c.props)
+		if r,_,_ := controlTrace.Call(uintptr(c.session),0,uintptr(unsafe.Pointer(&p[0])),0); r==0 {
+			lost := u32(p,88) // EVENT_TRACE_PROPERTIES.EventsLost
+			c.mu.Lock(); if lost>c.lost { c.lost=lost }; c.mu.Unlock()
+		}
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	a := make([]FlowDatum, 0, len(c.rows))
-	for _, v := range c.rows {
+	rows, status, lost, overflow := c.rows, c.status, c.lost, c.overflow
+	c.overflow = Bytes{}
+	c.rows = map[FlowKey]FlowDatum{}
+	c.mu.Unlock()
+	a := make([]FlowDatum, 0, len(rows))
+	for _, v := range rows {
+		v.Name = c.getName(v.Key.PID)
 		a = append(a, v)
 	}
-	c.rows = map[FlowKey]FlowDatum{}
-	return a, c.status, c.lost
+	return a, status, lost, overflow
 }
 func u32(b []byte, i int) uint32 { return binary.LittleEndian.Uint32(b[i : i+4]) }
 func (c *Capture) event(rec uintptr) uintptr {
@@ -145,25 +175,32 @@ func (c *Capture) event(rec uintptr) uintptr {
 	}
 	b := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), l)
 	pid, size := u32(b, 0), u32(b, 4)
-	if size == 0 || size > 1<<30 || pid == uint32(os.Getpid()) {
+	if size == 0 || size > 1<<30 {
 		return 0
 	}
 	dst, src := net.IP(b[8:8+iplen]).String(), net.IP(b[8+iplen:8+2*iplen]).String()
 	dp, sp := binary.BigEndian.Uint16(b[8+2*iplen:]), binary.BigEndian.Uint16(b[10+2*iplen:])
 	up := opcode == 10 || opcode == 26
 	key := FlowKey{pid, src, dst, sp, dp, provider == 0xbf3a50c5}
-	if !up {
+	// TCP receive records already use the local socket in the source fields;
+	// UDP receive records use the destination fields for the local socket.
+	if !up && key.UDP {
 		key.Local, key.Remote, key.LP, key.RP = dst, src, dp, sp
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Opening a trace session does not establish that events are being delivered.
+	if c.status == "Windows 等待网络事件" {
+		c.status = "Windows 实时采集中"
+	}
 	v, ok := c.rows[key]
 	if !ok {
 		if len(c.rows) >= 50000 {
-			c.lost++
+			// Preserve captured bytes in a diagnostic bucket even when the flow limit is hit.
+			if up { c.overflow.Up += uint64(size) } else { c.overflow.Down += uint64(size) }
 			return 0
 		}
-		v = FlowDatum{Key: key, Name: c.getName(pid)}
+		v = FlowDatum{Key: key}
 	}
 	if up {
 		v.Bytes.Up += uint64(size)
@@ -184,12 +221,16 @@ func (c *Capture) start() {
 	put(40, 1)
 	put(44, 0x00020000)
 	put(48, 64)
-	put(52, 16)
-	put(56, 128)
+	put(52, 32)
+	put(56, 256)
 	put(64, 0x02000100)
 	put(68, 1)
 	put(72, 0x00010000)
 	put(116, 120)
+	// Use a unique GUID for this private system logger session (Windows 8+).
+	if _, e := rand.Read(p[24:40]); e != nil { c.setStatus("Windows ETW GUID 生成失败"); return }
+	p[31] = p[31]&0x0f | 0x40
+	p[32] = p[32]&0x3f | 0x80
 	r, _, _ := startTrace.Call(uintptr(unsafe.Pointer(&c.session)), uintptr(unsafe.Pointer(n)), uintptr(unsafe.Pointer(&p[0])))
 	if r != 0 {
 		c.setStatus(fmt.Sprintf("Windows 采集失败 (%d)，请以管理员运行", r))
@@ -215,12 +256,14 @@ func (c *Capture) start() {
 		return
 	}
 	c.handle = uint64(h)
-	c.setStatus("Windows 实时采集中")
+	c.setStatus("Windows 等待网络事件")
+	c.traceDone = make(chan struct{})
+	traceHandle := c.handle
 	go func() {
-		r, _, _ := processTrace.Call(uintptr(unsafe.Pointer(&c.handle)), 1, 0, 0)
-		if r != 0 && r != 1223 {
-			c.setStatus(fmt.Sprintf("Windows 采集已停止 (%d)", r))
-		}
+		defer close(c.traceDone)
+		r, _, _ := processTrace.Call(uintptr(unsafe.Pointer(&traceHandle)), 1, 0, 0)
+		c.setStatus(fmt.Sprintf("Windows 采集已停止 (%d)", r))
+		runtime.KeepAlive(c.logfile)
 	}()
 }
 func (c *Capture) stop() {
@@ -232,6 +275,9 @@ func (c *Capture) stop() {
 	if c.handle != 0 {
 		closeTrace.Call(uintptr(c.handle))
 		c.handle = 0
+	}
+	if c.traceDone != nil {
+		select { case <-c.traceDone: case <-time.After(3*time.Second): }
 	}
 }
 func coreName(s string) bool {
@@ -316,7 +362,7 @@ func getOwners(c *Capture) Owners {
 					}
 					listen = u32(row, state) == 2
 				}
-				if o.core[pid] && (listen || udp) {
+				if o.core[pid] && listen && !udp {
 					o.ports[port] = true
 				}
 				if !listen || udp {
@@ -333,7 +379,7 @@ func getOwners(c *Capture) Owners {
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
 		n := strings.ToLower(i.Name)
-		if strings.Contains(n, "wintun") || strings.Contains(n, "mihomo") || strings.Contains(n, "clash") || strings.Contains(n, "wireguard") || strings.Contains(n, "tun") || strings.Contains(n, "tap-windows") {
+		if strings.Contains(n, "mihomo") || strings.Contains(n, "clash") {
 			o.virtual[uint32(i.Index)] = true
 		}
 	}

@@ -64,7 +64,6 @@ func proxyLoop(out chan<- APIResult, done <-chan struct{}) {
 				ok = true
 			} else {
 				selected = Target{}
-				tr.Reset()
 				types = nil
 				typesAt = time.Time{}
 			}
@@ -173,33 +172,33 @@ func addRow(m map[string]FlowDatum, name, target string, b Bytes) {
 	v.Bytes = v.Bytes.add(b)
 	m[key] = v
 }
-func coreLeg(v FlowDatum, o Owners, matched map[string]time.Time, tun map[string]bool) bool {
-	if coreName(v.Name) || o.core[v.Key.PID] {
-		return true
-	}
-	remote := net.ParseIP(v.Key.Remote)
-	local := net.ParseIP(v.Key.Local)
-	if (remote != nil && remote.IsLoopback() && o.ports[v.Key.RP]) || (local != nil && local.IsLoopback() && o.ports[v.Key.LP]) {
-		return true
-	}
-	if _, ok := matched[fmt.Sprintf("%s:%d", v.Key.Local, v.Key.LP)]; ok {
-		return true
-	}
-	if _, ok := matched[fmt.Sprintf("%s:%d", v.Key.Remote, v.Key.RP)]; ok {
-		return true
-	}
-	if v4 := remote.To4(); v4 != nil && v4[0] == 198 && (v4[1] == 18 || v4[1] == 19) && o.coreRunning {
-		return true
-	}
-	if o.coreRunning {
-		if b, ok := tun[v.Key.Remote]; ok {
-			return b
-		}
-		b := o.viaVirtual(v.Key.Remote)
-		tun[v.Key.Remote] = b
-		return b
-	}
-	return false
+// Match only the complete observed transport tuple. A source port alone,
+// a private address, or a generic VPN route is not proof of proxy ownership.
+func connectionFlowKey(c Connection) (FlowKey,bool) {
+ m:=c.Metadata
+ local,remote:=net.ParseIP(m.SourceIP),net.ParseIP(m.DestinationIP)
+ lp,e:=strconv.ParseUint(m.SourcePort,10,16);rp,err:=strconv.ParseUint(m.DestinationPort,10,16)
+ protocol:=strings.ToLower(m.Network)
+ if local==nil||remote==nil||e!=nil||err!=nil||lp==0||rp==0||(protocol!="udp"&&protocol!="tcp"){return FlowKey{},false}
+ return FlowKey{Local:local.String(),Remote:remote.String(),LP:uint16(lp),RP:uint16(rp),UDP:protocol=="udp"},true
+}
+func coreLeg(v FlowDatum,o Owners,matched map[FlowKey]time.Time,apiReady bool) int {
+ if coreName(v.Name)||o.core[v.Key.PID] {
+  if apiReady{return -1}
+  return Unknown
+ }
+ key:=v.Key;key.PID=0
+ if apiReady {
+  if _,ok:=matched[key];ok{return -1}
+ }
+ remote:=net.ParseIP(key.Remote)
+ // An exact TCP listener owned by the proxy is an internal leg, not an
+ // independent internet connection. Unknown when the API is unavailable.
+ if !key.UDP&&remote!=nil&&remote.IsLoopback()&&o.ports[key.RP] {
+  if apiReady{return -1}
+  return Unknown
+ }
+ return Direct
 }
 func runWorker(_ <-chan Settings, updates chan Update, done <-chan struct{}, stopped chan<- struct{}) {
 	defer close(stopped)
@@ -215,7 +214,7 @@ func runWorker(_ <-chan Settings, updates chan Update, done <-chan struct{}, sto
 	last := time.Now()
 	lastSave := last
 	var latest APIResult
-	matched := map[string]time.Time{}
+	matched := map[FlowKey]time.Time{}
 	var proxyRows = map[string]FlowDatum{}
 	var directRows = map[string]FlowDatum{}
 	var counts Counts
@@ -233,9 +232,7 @@ func runWorker(_ <-chan Settings, updates chan Update, done <-chan struct{}, sto
 			proxySec += ar.seconds
 			o := getOwners(c)
 			for _, conn := range ar.connections {
-				if conn.Metadata.SourcePort != "" && conn.Metadata.SourceIP != "" {
-					matched[conn.Metadata.SourceIP+":"+conn.Metadata.SourcePort] = ar.when
-				}
+				if key,ok:=connectionFlowKey(conn);ok{matched[key]=ar.when}
 			}
 			for _, a := range ar.rows {
 				kind := route(a.Conn)
@@ -264,34 +261,35 @@ func runWorker(_ <-chan Settings, updates chan Update, done <-chan struct{}, sto
 				}
 				addRow(m, name, host, a.Delta)
 			}
-		case now := <-ticker.C:
+		case <-ticker.C:
+			now := time.Now()
 			sec := now.Sub(last).Seconds()
 			if sec < .01 {
 				sec = 1
 			}
 			last = now
 			for key, t := range matched {
-				if now.Sub(t) > 8*time.Second {
+				if now.Sub(t) > 3*time.Second {
 					delete(matched, key)
 				}
 			}
 			o := getOwners(c)
-			flows, etwStatus, lost := c.snapshot()
-			var local Bytes
-			tun := map[string]bool{}
+			flows, etwStatus, lost, overflow := c.snapshot()
+			var local, unclassified Bytes
+			apiReady:=latest.connected&&now.Sub(latest.when)<5*time.Second
 			for _, v := range flows {
-				if coreLeg(v, o, matched, tun) {
-					continue
+				switch coreLeg(v,o,matched,apiReady){
+				case Direct: local=local.add(v.Bytes);addRow(directRows,v.Name,v.Key.Remote,v.Bytes)
+				case Unknown: unclassified=unclassified.add(v.Bytes)
 				}
-				local = local.add(v.Bytes)
-				addRow(directRows, v.Name, v.Key.Remote, v.Bytes)
 			}
+			unclassified=unclassified.add(overflow)
 			// Only classified DIRECT API data + non-proxy ETW events. Never subtract mismatched counters.
 			local = local.add(counts[Direct])
 			var delta Counts
 			delta[Proxy] = counts[Proxy]
 			delta[Direct] = local
-			delta[Unknown] = counts[Unknown]
+			delta[Unknown] = counts[Unknown].add(unclassified)
 			ledger.Add(now, delta)
 			// Daily-only persistence (no month statistics).
 			for k := range ledger.Days {
@@ -306,14 +304,15 @@ func runWorker(_ <-chan Settings, updates chan Update, done <-chan struct{}, sto
 			if u.Connected {
 				u.ProxyStatus = "Clash 已连接"
 			}
+			if overflow.sum()>0 {u.Status += " · 连接容量超限"}
 			if lost > 0 {
 				u.Status += fmt.Sprintf(" · 丢失事件 %d", lost)
 			}
 			if o.coreRunning && !u.Connected {
 				u.Status += " · 代理分类暂不可用"
 			}
-			if counts[Unknown].sum() > 0 {
-				u.Status += " · 部分短连接未归类"
+			if delta[Unknown].sum() > 0 {
+				u.Status += " · 未归类 "+human(float64(delta[Unknown].sum())/sec)+"/s"
 			}
 			if proxySec > 0 {
 				u.Rows[Proxy] = views(proxyRows, proxySec)

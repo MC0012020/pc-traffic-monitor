@@ -31,6 +31,61 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           go test -count=1 -v ./... | Tee-Object -FilePath dist/test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed' }
+      - name: Validate real Windows TCP and UDP capture twice
+        shell: pwsh
+        env:
+          PCMONITOR_LIVE_ETW: '1'
+        run: |
+          go test -count=2 -timeout=3m -run '^TestETWLiveTraffic
+        shell: pwsh
+        run: |
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
+          $short = $version -replace '\.0$',''
+          $exe = "PcTrafficMonitor_V$short.exe"
+          go build -trimpath -ldflags='-s -w -H windowsgui' -o "dist/$exe" .
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          Compress-Archive -LiteralPath @("dist/$exe",'README.md','CHANGELOG.md') -DestinationPath "dist/PcTrafficMonitor_V${short}_Portable.zip" -CompressionLevel Optimal
+          Copy-Item app.ico,icon_windows_amd64.syso dist/
+          $files = Get-ChildItem dist -File | Sort-Object Name
+          $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PcTrafficMonitor-windows-x64
+          path: dist/
+          if-no-files-found: error
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: PcTrafficMonitor-windows-x64
+          path: dist
+      - name: Verify and publish prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release already exists: $tag. Bump VERSION for a new release."
+            exit 0
+          fi
+          gh release create "$tag" dist/*.exe dist/*_Portable.zip dist/SHA256SUMS.txt dist/test-results.txt dist/app.ico dist/icon_windows_amd64.syso --target "$GITHUB_SHA" --title "PcTrafficMonitor $tag" --notes-file RELEASE_NOTES.md --prerelease
+ -v ./... | Tee-Object -FilePath dist/test-results.txt -Append
+          if ($LASTEXITCODE -ne 0) { throw 'Real network capture tests failed; release blocked' }
       - name: Build portable Windows x64 GUI
         shell: pwsh
         run: |
