@@ -255,7 +255,7 @@ func initControls() {
 	numberFont = makeFont(30, 700)
 	smallFont = makeFont(13, 400)
 	floatFont = makeFontQuality(17, 600, 4)
-	floatDayFont = makeFontQuality(12, 400, 4)
+	floatDayFont = makeFontQuality(12, 500, 4)
 	// Keep status and both header buttons on the same vertical centerline.
 	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 576, headerH, 0, smallFont)
 	colors[status] = muted
