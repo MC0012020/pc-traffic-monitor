@@ -15,3 +15,5 @@ func TestUpdateHash(t *testing.T){
  got,e:=expectedHash(s,"app.exe");if e!=nil||got!=h||!verifyHash(b,got)||verifyHash([]byte("bad"),got){t.Fatal(got,e)}
  for _,bad:=range []string{"bad  app.exe",s+s,h+"  other.exe"}{if _,e:=expectedHash(bad,"app.exe");e==nil{t.Fatal(bad)}}
 }
+
+func TestDownloadPercent(t *testing.T){for _,tc:=range []struct{received,total int64;want int}{{0,100,0},{25,100,25},{99,100,99},{100,100,100},{101,100,100},{10,0,0},{-1,100,0}}{if got:=downloadPercent(tc.received,tc.total);got!=tc.want{t.Fatal(tc,got)}}}

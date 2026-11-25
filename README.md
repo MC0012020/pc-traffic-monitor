@@ -10,7 +10,7 @@
 
 [前往 Releases 下载](https://github.com/MC0012020/pc-traffic-monitor/releases)
 
-下载 `PcTrafficMonitor_V3.13.1_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.1.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
+下载 `PcTrafficMonitor_V3.13.2_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.2.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
 
 ## 功能与操作
 
@@ -23,7 +23,7 @@
 
 ## 软件更新
 
-启动后及每6小时检查公开 GitHub Releases（失败时每小时重试，包含预发布）。发现更新时主窗口显示独立更新图标；点击确认后下载 EXE，按 Release 的 SHA256SUMS.txt 核验文件大小与哈希，正常退出保存统计，再替换并重启。更新失败时保留原程序或尝试回滚。更新要求 EXE 所在目录可写、可访问 GitHub；程序未签名，SHA256 验证不是数字签名。仅向 GitHub 发起版本检查及下载请求，不上传流量记录。
+启动后及每5分钟检查公开 GitHub Releases（失败时每分钟重试，包含预发布）；恢复主窗口也触发检查（至少间隔1分钟）。发现更新时主窗口显示独立更新图标；点击确认后显示连接、实际下载字节数及百分比、校验、安装状态，并下载 EXE，按 Release 的 SHA256SUMS.txt 核验文件大小与哈希，正常退出保存统计，再替换并重启。更新失败时保留原程序或尝试回滚。更新要求 EXE 所在目录可写、可访问 GitHub；程序未签名，SHA256 验证不是数字签名。仅向 GitHub 发起版本检查及下载请求，不上传流量记录。
 
 ## 统计口径和隐私
 

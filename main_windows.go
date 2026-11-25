@@ -311,7 +311,7 @@ func renderRows(rows []RecentRow, u Update) {
 	renderConnectionTable(rows, u)
 }
 func updateView(u Update) {
-	text(status, u.Status+"  |  "+u.ProxyStatus)
+	text(status, updateStatusText(u.Status+"  |  "+u.ProxyStatus))
 	ps, pu, ds, du := "—", "上传 —", "—", "上传 —"
 	if u.Connected && u.ProxySeconds > 0 {
 		ps = human(float64(u.Speed[Proxy].Down)/u.ProxySeconds) + "/s"
@@ -480,6 +480,7 @@ func changeDisplay(action displayAction) {
 		} // keep maximized/restored size
 		setTop()
 		user.NewProc("SetForegroundWindow").Call(mainWindow)
+		requestUpdateCheck()
 	}
 }
 func restoreTray() { changeDisplay(actionOpen) }

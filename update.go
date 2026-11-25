@@ -66,3 +66,8 @@ func expectedHash(manifest, filename string) (string,error) {
 	return found,nil
 }
 func verifyHash(data []byte, hash string) bool { return fmt.Sprintf("%x",sha256.Sum256(data))==hash }
+
+// Percentage is computed from received bytes, never elapsed time.
+func downloadPercent(received,total int64) int {
+ if total<=0||received<=0{return 0};if received>=total{return 100};return int(received*100/total)
+}
