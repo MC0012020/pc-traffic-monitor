@@ -10,7 +10,7 @@
 
 [前往 Releases 下载](https://github.com/MC0012020/pc-traffic-monitor/releases)
 
-下载 `PcTrafficMonitor_V3.13.6_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.6.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
+下载 `PcTrafficMonitor_V3.13.7_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.13.7.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
 
 ## 功能与操作
 
@@ -23,7 +23,7 @@
 
 ## 软件更新
 
-启动后及每1分钟检查公开 GitHub Releases（包含预发布，按检测开始时间计算间隔，网络请求未完成时不重叠）；恢复主窗口也触发检查（至少间隔1分钟）。检测失败时在现有状态栏提示，不增加按钮；恢复正常后自动清除。版本检查及下载优先通过 Mihomo `/configs` 返回的混合、HTTP、SOCKS 端口，其次尝试 Windows 已启用的静态 HTTPS 代理、环境变量代理，最后直连；无需设置端口。下载状态显示连接方式，失败自动尝试下一连接方式。不修改 Clash 规则或 Windows 代理设置，实际出口仍由代理规则决定；暂不解析 PAC/WPAD。发现更新时主窗口显示独立更新图标；点击确认后显示连接、实际下载字节数及百分比、校验、安装状态，并下载 EXE，按 Release 的 SHA256SUMS.txt 核验文件大小与哈希，正常退出保存统计，再替换并重启。更新失败时保留原程序或尝试回滚。更新要求 EXE 所在目录可写、可访问 GitHub；程序未签名，SHA256 验证不是数字签名。仅向 GitHub 发起版本检查及下载请求，不上传流量记录。
+启动后及每1分钟检查 GitHub VERSION 文件，并确认发布校验文件存在；必要时回退 GitHub Releases API（包含预发布，按检测开始时间计算间隔，网络请求未完成时不重叠）；恢复主窗口也触发检查（至少间隔1分钟）。检测失败时在现有状态栏提示，不增加按钮；恢复正常后自动清除。版本检测和下载自动尝试 Windows 原生网络、系统代理、直连、Clash/Mihomo 及环境变量代理，并复用最近成功线路，不强制代理；无需设置端口。下载状态显示连接方式，失败自动尝试下一连接方式，每条下载线路总超时15分钟。最近检测结果保存在本地 `%LOCALAPPDATA%\PcTrafficMonitorV31\update-status.txt`，用于排查失败原因。不修改 Clash 规则或 Windows 代理设置，实际出口仍由代理规则决定；Go 静态代理路径不解析 PAC/WPAD，Windows 原生网络接口使用系统配置。发现更新时主窗口显示独立更新图标；点击确认后显示连接、实际下载字节数及百分比、校验、安装状态，并下载 EXE，按 Release 的 SHA256SUMS.txt 核验文件大小与哈希，正常退出保存统计，再替换并重启。更新失败时保留原程序或尝试回滚。更新要求 EXE 所在目录可写、可访问 GitHub；程序未签名，SHA256 验证不是数字签名。仅向 GitHub 发起版本检查及下载请求，不上传流量记录。
 
 ## 统计口径和隐私
 

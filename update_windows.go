@@ -38,7 +38,8 @@ func (r *progressReader) Read(p []byte)(int,error){ n,e:=r.reader.Read(p); r.rec
 var updateEvents=make(chan updateEvent,2)
 type updateEvent struct { offer UpdateOffer; stage, hash string; err error; downloading bool }
 
-type updateRoute struct { name string; client *http.Client }
+type updateRoute struct { name, key string; client *http.Client; nativeTimeout time.Duration }
+var lastWorkingUpdateRoute atomic.Pointer[string]
 type routedUpdateClient struct { routes []updateRoute; preferred int }
 
 func newUpdateHTTPClient(timeout time.Duration, proxy func(*http.Request)(*url.URL,error))*http.Client {
@@ -46,11 +47,10 @@ func newUpdateHTTPClient(timeout time.Duration, proxy func(*http.Request)(*url.U
  tr.Proxy=proxy
  tr.DialContext=(&net.Dialer{Timeout:8*time.Second,KeepAlive:30*time.Second}).DialContext
  tr.TLSHandshakeTimeout=10*time.Second
- tr.ResponseHeaderTimeout=20*time.Second
+ tr.ResponseHeaderTimeout=30*time.Second
  tr.DisableCompression=true
  return &http.Client{Transport:tr,Timeout:timeout,CheckRedirect:func(r *http.Request, via []*http.Request)error{
-  h:=r.URL.Hostname()
-  if len(via)>=8||r.URL.Scheme!="https"||(h!="github.com"&&h!="api.github.com"&&h!="release-assets.githubusercontent.com"&&h!="objects.githubusercontent.com"){return fmt.Errorf("unexpected update redirect")}
+  if len(via)>=8||!allowedUpdateURL(r.URL){return fmt.Errorf("unexpected update redirect")}
   return nil
  }}
 }
@@ -59,38 +59,52 @@ func updateClient(timeout time.Duration)*routedUpdateClient {
  seen:=map[string]bool{}
  add:=func(name string,u *url.URL){
   if u==nil||seen[u.String()]{return};seen[u.String()]=true
-  c.routes=append(c.routes,updateRoute{name,newUpdateHTTPClient(timeout,http.ProxyURL(u))})
+  c.routes=append(c.routes,updateRoute{name:name,key:u.String(),client:newUpdateHTTPClient(timeout,http.ProxyURL(u))})
  }
- for _,u:=range runningMihomoUpdateProxies(){add("Clash 代理",u)}
+ c.routes=append(c.routes,updateRoute{name:"Windows 网络",key:"native",nativeTimeout:timeout})
  add("系统代理",staticWindowsUpdateProxy())
+ c.routes=append(c.routes,updateRoute{name:"直连",key:"direct",client:newUpdateHTTPClient(timeout,nil)})
+ for _,u:=range runningMihomoUpdateProxies(){add("Clash 代理",u)}
  req,_:=http.NewRequest("GET","https://api.github.com/",nil)
  if u,e:=http.ProxyFromEnvironment(req);e==nil{add("环境代理",u)}
- c.routes=append(c.routes,updateRoute{"直连",newUpdateHTTPClient(timeout,nil)})
+ if previous:=lastWorkingUpdateRoute.Load();previous!=nil{for i,r:=range c.routes{if r.key==*previous{c.preferred=i;break}}}
  return c
 }
-func (c *routedUpdateClient) close(){for _,r:=range c.routes{r.client.CloseIdleConnections()}}
+func (c *routedUpdateClient) close(){for _,r:=range c.routes{if r.client!=nil{r.client.CloseIdleConnections()}}}
 func getUpdateFile(c *routedUpdateClient,url string,maxBytes int64)([]byte,error){return readUpdateFile(c,url,maxBytes,0,false)}
 func readUpdateFile(c *routedUpdateClient,url string,maxBytes,total int64,showProgress bool)([]byte,error){
+ return readUpdateFileValidated(c,url,maxBytes,total,showProgress,nil)
+}
+func readUpdateFileValidated(c *routedUpdateClient,address string,maxBytes,total int64,showProgress bool,validate func([]byte)error)([]byte,error){
  var failures []string
  for step:=0;step<len(c.routes);step++{
   i:=(c.preferred+step)%len(c.routes);route:=c.routes[i]
   if showProgress{setDownloadState("正在连接 GitHub · "+route.name,0,0)}
-  b,e:=readUpdateRoute(route,url,maxBytes,total)
-  if e==nil{c.preferred=i;return b,nil}
+  b,e:=readUpdateRoute(route,address,maxBytes,total)
+  if e==nil&&validate!=nil{e=validate(b)}
+  if e==nil{c.preferred=i;key:=route.key;lastWorkingUpdateRoute.Store(&key);return b,nil}
+  if ue,ok:=e.(*url.Error);ok{e=ue.Err}
   failures=append(failures,route.name+": "+e.Error())
  }
  return nil,fmt.Errorf("%s",strings.Join(failures,"\n"))
 }
 func readUpdateRoute(route updateRoute, address string,maxBytes,total int64)([]byte,error){
+ u,e:=url.Parse(address);if e!=nil||!allowedUpdateURL(u){return nil,fmt.Errorf("unexpected update URL")}
+ if route.client==nil{return readNativeUpdate(route,address,maxBytes,total)}
  req,e:=http.NewRequest("GET",address,nil);if e!=nil{return nil,e}
  req.Header.Set("User-Agent","PcTrafficMonitor/"+appVersion())
- if req.URL.Hostname()=="api.github.com" {req.Header.Set("Cache-Control","no-cache");req.Header.Set("Accept","application/vnd.github+json")}
+ req.Header.Set("Cache-Control","no-cache")
+ req.Header.Set("Accept-Encoding","identity")
+ if req.URL.Hostname()=="api.github.com" {req.Header.Set("Accept","application/vnd.github+json")}
  res,e:=route.client.Do(req);if e!=nil{return nil,e};defer res.Body.Close()
  if res.StatusCode!=200{return nil,fmt.Errorf("HTTP %d",res.StatusCode)}
  var reader io.Reader=io.LimitReader(res.Body,maxBytes+1)
- if total>0 {setDownloadState(route.name,0,total);reader=&progressReader{reader:reader,total:total,route:route.name}}
+ if res.ContentLength>maxBytes{return nil,fmt.Errorf("file too large")}
+ if total>0&&res.ContentLength>=0&&res.ContentLength!=total{return nil,fmt.Errorf("unexpected file size")}
+ if total!=0 {shownTotal:=total;if total<0&&res.ContentLength>0{shownTotal=res.ContentLength};setDownloadState(route.name,0,shownTotal);reader=&progressReader{reader:reader,total:shownTotal,route:route.name}}
  b,e:=io.ReadAll(reader);if e==nil&&int64(len(b))>maxBytes{e=fmt.Errorf("file too large")}
  if e==nil&&total>0&&int64(len(b))!=total{e=fmt.Errorf("incomplete download")}
+ if e==nil&&res.ContentLength>=0&&int64(len(b))!=res.ContentLength{e=fmt.Errorf("incomplete response")}
  return b,e
 }
 func updateCheckLoop(){
@@ -102,26 +116,60 @@ func updateCheckLoop(){
  }
  lastCheck=time.Now()
   c:=updateClient(15*time.Second)
-  b,e:=getUpdateFile(c,"https://api.github.com/repos/MC0012020/pc-traffic-monitor/releases?per_page=30",2<<20)
+  offer,source,e:=checkGitHubUpdate(c)
   c.close()
-  var r []ReleaseInfo
-  if e==nil{e=json.Unmarshal(b,&r)}
-  var offer UpdateOffer
-  if e==nil{offer,_=pickUpdate(r,appVersion())}
+  writeUpdateDiagnostic(source,offer,e)
   select{case updateEvents<-updateEvent{offer:offer,err:e}:case <-done:return}
   // Schedule from the start of each check, not the end; no overlapping requests.
   timer.Reset(max(0,time.Minute-time.Since(lastCheck)))
  }
 }
+// Avoid polling the rate-limited REST API when a small raw VERSION file
+// is enough. A new source revision is not downloadable until its release
+// checksum has actually been published.
+func checkGitHubUpdate(c *routedUpdateClient)(UpdateOffer,string,error){
+ var candidate UpdateOffer
+ _,rawErr:=readUpdateFileValidated(c,rawVersionURL+"?minute="+strconv.FormatInt(time.Now().Unix()/60,10),128,0,false,func(b []byte)error{
+  var e error
+  candidate,e=versionFileOffer(string(b),appVersion())
+  return e
+ })
+ if rawErr==nil{
+  if candidate.Tag==""{return candidate,"GitHub VERSION",nil}
+  _,e:=readUpdateFileValidated(c,candidate.Sums.URL,64<<10,0,false,func(b []byte)error{_,e:=expectedHash(string(b),candidate.Exe.Name);return e})
+  if e==nil{return candidate,"GitHub VERSION + Release SHA256",nil}
+  rawErr=fmt.Errorf("release not ready or checksum unavailable: %w",e)
+ }
+ var offer UpdateOffer
+ _,apiErr:=readUpdateFileValidated(c,"https://api.github.com/repos/MC0012020/pc-traffic-monitor/releases?per_page=30",2<<20,0,false,func(b []byte)error{
+  var rs []ReleaseInfo
+  if e:=json.Unmarshal(b,&rs);e!=nil{return e}
+  if rs==nil{return fmt.Errorf("invalid releases response")}
+  offer,_=pickUpdate(rs,appVersion())
+  return nil
+ })
+ if apiErr==nil{return offer,"GitHub Releases API",nil}
+ return UpdateOffer{},"GitHub",fmt.Errorf("VERSION: %v\nReleases API: %v",rawErr,apiErr)
+}
+func writeUpdateDiagnostic(source string,offer UpdateOffer,err error){
+ dir:=filepath.Dir(dataPath())
+ if os.MkdirAll(dir,0700)!=nil{return}
+ status:="up to date";if offer.Tag!=""{status="available: "+offer.Tag}
+ if err!=nil{status=err.Error()}
+ body:=fmt.Sprintf("%s\ncurrent: %s\nsource: %s\n%s\n",time.Now().Format(time.RFC3339),appVersion(),source,status)
+ _=os.WriteFile(filepath.Join(dir,"update-status.txt"),[]byte(body),0600)
+}
 func downloadUpdate(o UpdateOffer)(stage,hash string,err error){
- setDownloadState("正在识别本机代理…",0,0)
- c:=updateClient(180*time.Second);defer c.close()
- sums,e:=readUpdateFile(c,o.Sums.URL,64<<10,0,true);if e!=nil{return "","",e}
- h,e:=expectedHash(string(sums),o.Exe.Name);if e!=nil{return "","",e}
+ setDownloadState("正在选择下载线路…",0,0)
+ c:=updateClient(15*time.Minute);defer c.close()
+ var h string
+ _,e:=readUpdateFileValidated(c,o.Sums.URL,64<<10,0,true,func(b []byte)error{var err error;h,err=expectedHash(string(b),o.Exe.Name);return err});if e!=nil{return "","",e}
  setDownloadState("正在连接下载服务器…",0,0)
- b,e:=readUpdateFile(c,o.Exe.URL,64<<20,o.Exe.Size,true);if e!=nil{return "","",e}
- setDownloadState("正在校验文件…",0,0)
- if int64(len(b))!=o.Exe.Size||!verifyHash(b,h){return "","",fmt.Errorf("SHA256 or file size mismatch")}
+ total:=o.Exe.Size;if total==0{total=-1}
+ b,e:=readUpdateFileValidated(c,o.Exe.URL,64<<20,total,true,func(b []byte)error{
+  setDownloadState("正在校验文件…",0,0)
+  if (o.Exe.Size>0&&int64(len(b))!=o.Exe.Size)||!verifyHash(b,h){return fmt.Errorf("SHA256 or file size mismatch")};return nil
+ });if e!=nil{return "","",e}
  exe,e:=os.Executable();if e!=nil{return "","",e}
  dir,e:=os.MkdirTemp(filepath.Dir(exe),".pcmonitor-update-");if e!=nil{return "","",e}
  success:=false;defer func(){if !success{_ = os.RemoveAll(dir)}}()
@@ -162,6 +210,7 @@ func updateStatusText(normal string) string {
  if !updateBusy{if updateCheckFailed{return normal+" · 更新检测失败"};return normal}
  p:=updateProgress.Load();if p==nil{return "正在准备更新…"}
  if p.total>0{return fmt.Sprintf("下载更新 %d%% · %s / %s · %s",downloadPercent(p.received,p.total),human(float64(p.received)),human(float64(p.total)),p.stage)}
+ if p.total<0{return fmt.Sprintf("下载更新 · %s · %s",human(float64(p.received)),p.stage)}
  return p.stage
 }
 func refreshUpdateProgress(){
@@ -180,7 +229,7 @@ func pollUpdateUI(){
    if !updateBusy{text(status,updateStatusText(last.Status+"  |  "+last.ProxyStatus))}
    return
   }
-  if e.err!=nil{finishUpdateUI();changeDisplay(actionOpen);msg("更新失败，原程序保持不变：\n"+e.err.Error());return}
+  if e.err!=nil{writeUpdateDiagnostic("download",updateOffer,e.err);finishUpdateUI();changeDisplay(actionOpen);msg("更新失败，原程序保持不变：\n"+e.err.Error());return}
   setDownloadState("正在安装并重启…",0,0);refreshUpdateProgress()
   user.NewProc("UpdateWindow").Call(mainWindow)
   exe,err:=os.Executable();if err!=nil{_ = os.RemoveAll(e.stage);finishUpdateUI();changeDisplay(actionOpen);msg(err.Error());return}

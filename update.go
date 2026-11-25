@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -70,4 +71,26 @@ func verifyHash(data []byte, hash string) bool { return fmt.Sprintf("%x",sha256.
 // Percentage is computed from received bytes, never elapsed time.
 func downloadPercent(received,total int64) int {
  if total<=0||received<=0{return 0};if received>=total{return 100};return int(received*100/total)
+}
+
+
+// VERSION on main is a tiny, unauthenticated GitHub raw file. A newer
+// commit is only offered after its corresponding release checksum exists.
+const rawVersionURL = "https://raw.githubusercontent.com/MC0012020/pc-traffic-monitor/main/VERSION"
+
+func versionFileOffer(body, current string) (UpdateOffer, error) {
+ v:=strings.TrimSpace(body)
+ parsed,ok:=parseVersion(v)
+ if !ok || v!=fmt.Sprintf("%d.%d.%d",parsed[0],parsed[1],parsed[2]) {return UpdateOffer{},fmt.Errorf("invalid VERSION file")}
+ if !newer(v,current){return UpdateOffer{},nil}
+ tag:="v"+v
+ name:="PcTrafficMonitor_V"+strings.TrimSuffix(v,".0")+".exe"
+ return UpdateOffer{Tag:tag,Exe:ReleaseAsset{Name:name,URL:releaseBase+tag+"/"+name},Sums:ReleaseAsset{Name:"SHA256SUMS.txt",URL:releaseBase+tag+"/SHA256SUMS.txt"}},nil
+}
+func allowedUpdateURL(u *url.URL) bool {
+ if u==nil || u.Scheme!="https" || u.User!=nil || (u.Port()!=""&&u.Port()!="443"){return false}
+ switch strings.ToLower(u.Hostname()){
+ case "github.com","api.github.com","raw.githubusercontent.com","release-assets.githubusercontent.com","objects.githubusercontent.com":return true
+ }
+ return false
 }
