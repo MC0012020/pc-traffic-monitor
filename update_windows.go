@@ -6,6 +6,8 @@ import (
  "fmt"
  "io"
  "net/http"
+ "net"
+ "net/url"
  "os"
  "os/exec"
  "path/filepath"
@@ -30,27 +32,63 @@ type downloadState struct { stage string; received, total int64 }
 func setDownloadState(stage string, received, total int64) { updateProgress.Store(&downloadState{stage, received, total}) }
 func requestUpdateCheck(){ select {case updateWake <- struct{}{}: default:} }
 
-type progressReader struct { reader io.Reader; received, total int64 }
-func (r *progressReader) Read(p []byte)(int,error){ n,e:=r.reader.Read(p); r.received+=int64(n); if n>0{setDownloadState("正在下载",r.received,r.total)};return n,e }
+type progressReader struct { reader io.Reader; received, total int64; route string }
+func (r *progressReader) Read(p []byte)(int,error){ n,e:=r.reader.Read(p); r.received+=int64(n); if n>0{setDownloadState(r.route,r.received,r.total)};return n,e }
 var updateEvents=make(chan updateEvent,2)
 type updateEvent struct { offer UpdateOffer; stage, hash string; err error; downloading bool }
 
-func updateClient(timeout time.Duration)*http.Client{
- return &http.Client{Timeout:timeout,CheckRedirect:func(r *http.Request, via []*http.Request)error{
+type updateRoute struct { name string; client *http.Client }
+type routedUpdateClient struct { routes []updateRoute; preferred int }
+
+func newUpdateHTTPClient(timeout time.Duration, proxy func(*http.Request)(*url.URL,error))*http.Client {
+ tr:=http.DefaultTransport.(*http.Transport).Clone()
+ tr.Proxy=proxy
+ tr.DialContext=(&net.Dialer{Timeout:8*time.Second,KeepAlive:30*time.Second}).DialContext
+ tr.TLSHandshakeTimeout=10*time.Second
+ tr.ResponseHeaderTimeout=20*time.Second
+ tr.DisableCompression=true
+ return &http.Client{Transport:tr,Timeout:timeout,CheckRedirect:func(r *http.Request, via []*http.Request)error{
   h:=r.URL.Hostname()
   if len(via)>=8||r.URL.Scheme!="https"||(h!="github.com"&&h!="api.github.com"&&h!="release-assets.githubusercontent.com"&&h!="objects.githubusercontent.com"){return fmt.Errorf("unexpected update redirect")}
   return nil
  }}
 }
-func getUpdateFile(c *http.Client,url string,maxBytes int64)([]byte,error){ return readUpdateFile(c,url,maxBytes,0) }
-func readUpdateFile(c *http.Client,url string,maxBytes,total int64)([]byte,error){
- req,e:=http.NewRequest("GET",url,nil);if e!=nil{return nil,e}
+func updateClient(timeout time.Duration)*routedUpdateClient {
+ c:=&routedUpdateClient{}
+ seen:=map[string]bool{}
+ add:=func(name string,u *url.URL){
+  if u==nil||seen[u.String()]{return};seen[u.String()]=true
+  c.routes=append(c.routes,updateRoute{name,newUpdateHTTPClient(timeout,http.ProxyURL(u))})
+ }
+ for _,u:=range runningMihomoUpdateProxies(){add("Clash 代理",u)}
+ add("系统代理",staticWindowsUpdateProxy())
+ req,_:=http.NewRequest("GET","https://api.github.com/",nil)
+ if u,e:=http.ProxyFromEnvironment(req);e==nil{add("环境代理",u)}
+ c.routes=append(c.routes,updateRoute{"直连",newUpdateHTTPClient(timeout,nil)})
+ return c
+}
+func (c *routedUpdateClient) close(){for _,r:=range c.routes{r.client.CloseIdleConnections()}}
+func getUpdateFile(c *routedUpdateClient,url string,maxBytes int64)([]byte,error){return readUpdateFile(c,url,maxBytes,0,false)}
+func readUpdateFile(c *routedUpdateClient,url string,maxBytes,total int64,showProgress bool)([]byte,error){
+ var failures []string
+ for step:=0;step<len(c.routes);step++{
+  i:=(c.preferred+step)%len(c.routes);route:=c.routes[i]
+  if showProgress{setDownloadState("正在连接 GitHub · "+route.name,0,0)}
+  b,e:=readUpdateRoute(route,url,maxBytes,total)
+  if e==nil{c.preferred=i;return b,nil}
+  failures=append(failures,route.name+": "+e.Error())
+ }
+ return nil,fmt.Errorf("%s",strings.Join(failures,"\n"))
+}
+func readUpdateRoute(route updateRoute, address string,maxBytes,total int64)([]byte,error){
+ req,e:=http.NewRequest("GET",address,nil);if e!=nil{return nil,e}
  req.Header.Set("User-Agent","PcTrafficMonitor/"+appVersion())
- res,e:=c.Do(req);if e!=nil{return nil,e};defer res.Body.Close()
+ res,e:=route.client.Do(req);if e!=nil{return nil,e};defer res.Body.Close()
  if res.StatusCode!=200{return nil,fmt.Errorf("HTTP %d",res.StatusCode)}
  var reader io.Reader=io.LimitReader(res.Body,maxBytes+1)
- if total>0 { setDownloadState("正在下载",0,total);reader=&progressReader{reader:reader,total:total} }
+ if total>0 {setDownloadState(route.name,0,total);reader=&progressReader{reader:reader,total:total,route:route.name}}
  b,e:=io.ReadAll(reader);if e==nil&&int64(len(b))>maxBytes{e=fmt.Errorf("file too large")}
+ if e==nil&&total>0&&int64(len(b))!=total{e=fmt.Errorf("incomplete download")}
  return b,e
 }
 func updateCheckLoop(){
@@ -61,7 +99,9 @@ func updateCheckLoop(){
   if !timer.Stop(){select{case <-timer.C:default:}}
  }
  lastCheck=time.Now()
-  b,e:=getUpdateFile(updateClient(15*time.Second),"https://api.github.com/repos/MC0012020/pc-traffic-monitor/releases?per_page=30",2<<20)
+  c:=updateClient(15*time.Second)
+  b,e:=getUpdateFile(c,"https://api.github.com/repos/MC0012020/pc-traffic-monitor/releases?per_page=30",2<<20)
+  c.close()
   var r []ReleaseInfo
   if e==nil{e=json.Unmarshal(b,&r)}
   delay:=5*time.Minute
@@ -70,12 +110,12 @@ func updateCheckLoop(){
  }
 }
 func downloadUpdate(o UpdateOffer)(stage,hash string,err error){
- c:=updateClient(180*time.Second)
- setDownloadState("正在连接 GitHub…",0,0)
- sums,e:=getUpdateFile(c,o.Sums.URL,64<<10);if e!=nil{return "","",e}
+ setDownloadState("正在识别本机代理…",0,0)
+ c:=updateClient(180*time.Second);defer c.close()
+ sums,e:=readUpdateFile(c,o.Sums.URL,64<<10,0,true);if e!=nil{return "","",e}
  h,e:=expectedHash(string(sums),o.Exe.Name);if e!=nil{return "","",e}
  setDownloadState("正在连接下载服务器…",0,0)
- b,e:=readUpdateFile(c,o.Exe.URL,64<<20,o.Exe.Size);if e!=nil{return "","",e}
+ b,e:=readUpdateFile(c,o.Exe.URL,64<<20,o.Exe.Size,true);if e!=nil{return "","",e}
  setDownloadState("正在校验文件…",0,0)
  if int64(len(b))!=o.Exe.Size||!verifyHash(b,h){return "","",fmt.Errorf("SHA256 or file size mismatch")}
  exe,e:=os.Executable();if e!=nil{return "","",e}
@@ -117,7 +157,7 @@ func updateButtonState(){
 func updateStatusText(normal string) string {
  if !updateBusy{return normal}
  p:=updateProgress.Load();if p==nil{return "正在准备更新…"}
- if p.total>0{return fmt.Sprintf("正在下载更新 %d%%  ·  %s / %s",downloadPercent(p.received,p.total),human(float64(p.received)),human(float64(p.total)))}
+ if p.total>0{return fmt.Sprintf("下载更新 %d%% · %s / %s · %s",downloadPercent(p.received,p.total),human(float64(p.received)),human(float64(p.total)),p.stage)}
  return p.stage
 }
 func refreshUpdateProgress(){
