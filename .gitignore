@@ -1,0 +1,7 @@
+*.exe
+*.zip
+/dist/
+*.tmp
+daily.json
+/app.ico
+/icon_windows_amd64.syso
