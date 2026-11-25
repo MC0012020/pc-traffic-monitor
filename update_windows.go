@@ -27,6 +27,7 @@ var updateBusy bool
 var updateProgress atomic.Pointer[downloadState]
 var updateWake = make(chan struct{}, 1)
 var updateLastDraw string
+var updateCheckFailed bool // UI thread only
 
 type downloadState struct { stage string; received, total int64 }
 func setDownloadState(stage string, received, total int64) { updateProgress.Store(&downloadState{stage, received, total}) }
@@ -83,6 +84,7 @@ func readUpdateFile(c *routedUpdateClient,url string,maxBytes,total int64,showPr
 func readUpdateRoute(route updateRoute, address string,maxBytes,total int64)([]byte,error){
  req,e:=http.NewRequest("GET",address,nil);if e!=nil{return nil,e}
  req.Header.Set("User-Agent","PcTrafficMonitor/"+appVersion())
+ if req.URL.Hostname()=="api.github.com" {req.Header.Set("Cache-Control","no-cache");req.Header.Set("Accept","application/vnd.github+json")}
  res,e:=route.client.Do(req);if e!=nil{return nil,e};defer res.Body.Close()
  if res.StatusCode!=200{return nil,fmt.Errorf("HTTP %d",res.StatusCode)}
  var reader io.Reader=io.LimitReader(res.Body,maxBytes+1)
@@ -104,9 +106,11 @@ func updateCheckLoop(){
   c.close()
   var r []ReleaseInfo
   if e==nil{e=json.Unmarshal(b,&r)}
-  delay:=5*time.Minute
-  if e==nil{if offer,ok:=pickUpdate(r,appVersion());ok{select{case updateEvents<-updateEvent{offer:offer}:case <-done:return}}}else{delay=time.Minute}
-  timer.Reset(delay)
+  var offer UpdateOffer
+  if e==nil{offer,_=pickUpdate(r,appVersion())}
+  select{case updateEvents<-updateEvent{offer:offer,err:e}:case <-done:return}
+  // Schedule from the start of each check, not the end; no overlapping requests.
+  timer.Reset(max(0,time.Minute-time.Since(lastCheck)))
  }
 }
 func downloadUpdate(o UpdateOffer)(stage,hash string,err error){
@@ -155,7 +159,7 @@ func updateButtonState(){
  user.NewProc("InvalidateRect").Call(updateButton,0,1)
 }
 func updateStatusText(normal string) string {
- if !updateBusy{return normal}
+ if !updateBusy{if updateCheckFailed{return normal+" · 更新检测失败"};return normal}
  p:=updateProgress.Load();if p==nil{return "正在准备更新…"}
  if p.total>0{return fmt.Sprintf("下载更新 %d%% · %s / %s · %s",downloadPercent(p.received,p.total),human(float64(p.received)),human(float64(p.total)),p.stage)}
  return p.stage
@@ -170,7 +174,12 @@ func pollUpdateUI(){
  refreshUpdateProgress()
  select{
  case e:=<-updateEvents:
-  if !e.downloading{if updateOffer.Tag==""||newer(e.offer.Tag,updateOffer.Tag){updateOffer=e.offer;updateButtonState()};return}
+  if !e.downloading{
+   updateCheckFailed=e.err!=nil
+   if e.err==nil&&!updateBusy&&updateOffer.Tag!=e.offer.Tag{updateOffer=e.offer;updateButtonState()}
+   if !updateBusy{text(status,updateStatusText(last.Status+"  |  "+last.ProxyStatus))}
+   return
+  }
   if e.err!=nil{finishUpdateUI();changeDisplay(actionOpen);msg("更新失败，原程序保持不变：\n"+e.err.Error());return}
   setDownloadState("正在安装并重启…",0,0);refreshUpdateProgress()
   user.NewProc("UpdateWindow").Call(mainWindow)
@@ -183,7 +192,7 @@ func pollUpdateUI(){
  default:
  }
 }
-func finishUpdateUI(){updateBusy=false;updateProgress.Store(nil);updateLastDraw="";updateButtonState();text(status,last.Status+"  |  "+last.ProxyStatus)}
+func finishUpdateUI(){updateBusy=false;updateProgress.Store(nil);updateLastDraw="";updateButtonState();text(status,updateStatusText(last.Status+"  |  "+last.ProxyStatus))}
 // The helper is a copy of the current executable. It waits until the old
 // instance has closed and saved history, verifies the payload again, and swaps
 // the executable with a recoverable backup in the same volume.
