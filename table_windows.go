@@ -75,9 +75,9 @@ func initConnectionTable() {
 	c := commonControls{8, 1}
 	comctl.NewProc("InitCommonControlsEx").Call(uintptr(unsafe.Pointer(&c)))
 	// LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP
-	connectionTable = ctrl("SysListView32", "", 0x0001|0x0004|0x0008|wsTabstop, 16, 207, 672, 218, 301, font)
+	connectionTable = ctrl("SysListView32", "", 0x0001|0x0004|0x0008|wsTabstop, 16, connectionTableY, 672, 218, 301, font)
 	if connectionTable == 0 {
-		tableControls = append(tableControls, colored("连接列表初始化失败", 16, 208, 672, 24, font, muted))
+		tableControls = append(tableControls, colored("连接列表初始化失败", 16, connectionTableY+1, 672, 24, font, muted))
 		return
 	}
 	tableControls = append(tableControls, connectionTable)
@@ -118,7 +118,7 @@ func initConnectionTable() {
 		headerInstalled = r != 0
 		send.Call(tableHeader, wmSetFont, tableHeaderFont, 1)
 		// Recalculate the list's internal header geometry after subclassing.
-		setPos.Call(connectionTable, 0, 16, 207, 672, 218, 0x0004|0x0010|0x0020)
+		setPos.Call(connectionTable, 0, 16, connectionTableY, 672, 218, 0x0004|0x0010|0x0020)
 	}
 }
 
@@ -487,5 +487,5 @@ func tableCapacity() int {
 }
 func expandedMinimum() int {
 	_, header, row := tableGeometry()
-	return max(minExpandedHeight, 220+minTableHeight(header, row))
+	return max(minExpandedHeight, connectionTableInset+minTableHeight(header, row))
 }

@@ -67,7 +67,7 @@ func measureFloat() {
 	defer user.NewProc("ReleaseDC").Call(mainWindow, dc)
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, floatFont)
 	left, right := floatMeasure(dc, floatLeftText), floatMeasure(dc, floatRightText)
-	gdi.NewProc("SelectObject").Call(dc, smallFont)
+	gdi.NewProc("SelectObject").Call(dc, floatDayFont)
 	left, right = max(left, floatMeasure(dc, floatLeftDay)), max(right, floatMeasure(dc, floatRightDay))
 	floatWidth, floatDivider, floatRightX = floatDimensions(left, right)
 	gdi.NewProc("SelectObject").Call(dc, old)
@@ -199,10 +199,10 @@ func floatPaint(h uintptr) {
 	gdi.NewProc("SelectObject").Call(dc, old)
 	gdi.NewProc("DeleteObject").Call(pen)
 	floatLine(dc, floatDivider, 8, 1, floatHeight-16, lineBrush)
-	floatText(dc, floatLeftText, floatPadding, 5, floatDivider-floatGap-floatPadding, 23, floatFont, orange)
-	floatText(dc, floatRightText, floatRightX, 5, floatWidth-floatRightX-floatPadding, 23, floatFont, green)
-	floatText(dc, floatLeftDay, floatPadding, 28, floatDivider-floatGap-floatPadding, 18, smallFont, orange)
-	floatText(dc, floatRightDay, floatRightX, 28, floatWidth-floatRightX-floatPadding, 18, smallFont, green)
+	floatText(dc, floatLeftText, floatPadding, floatSpeedY, floatDivider-floatGap-floatPadding, floatSpeedH, floatFont, orange)
+	floatText(dc, floatRightText, floatRightX, floatSpeedY, floatWidth-floatRightX-floatPadding, floatSpeedH, floatFont, green)
+	floatText(dc, floatLeftDay, floatPadding, floatDayY, floatDivider-floatGap-floatPadding, floatDayH, floatDayFont, orange)
+	floatText(dc, floatRightDay, floatRightX, floatDayY, floatWidth-floatRightX-floatPadding, floatDayH, floatDayFont, green)
 }
 func floatProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	switch m {

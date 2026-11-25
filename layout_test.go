@@ -57,3 +57,8 @@ func TestFloatDimensions(t *testing.T) {
 		t.Fatal("drag threshold")
 	}
 }
+
+func TestCompactHeaderAndFloatRows(t *testing.T) {
+	if headerY+headerH >= 45 || connectionTableInset-connectionTableY != 13 { t.Fatal("header or table spacing") }
+	if floatSpeedY+floatSpeedH > floatDayY || floatDayY+floatDayH > floatHeight-4 { t.Fatal("floating rows overlap or clip") }
+}

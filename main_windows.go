@@ -41,7 +41,7 @@ var backgrounds = map[uintptr]uintptr{}
 var whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush uintptr
 var proxyDown, directDown, proxyUp, directUp, proxyDay, directDay, proxyPct, directPct, unknownLine, barP, barD, barU, sourceLine uintptr
 
-const minExpandedHeight = 438 // baseline; measured native row heights can raise it
+const minExpandedHeight = 416 // baseline; measured native row heights can raise it
 
 var recent RecentRows
 var cachedText = map[uintptr]string{}
@@ -51,10 +51,10 @@ var exitRequested bool
 var proxyState, localState uintptr
 var headerBtns = map[uintptr]bool{}
 var paleBrush uintptr
-var numberFont, smallFont, floatFont, titleFont uintptr
+var numberFont, smallFont, floatFont, floatDayFont uintptr
 
 const windowStyle = 0x00CF0000 // WS_OVERLAPPEDWINDOW: sizing frame, maximize and restore
-var titleLabel, horizontalLine, verticalLine uintptr
+var horizontalLine, verticalLine uintptr
 var metricLabels [2][5]uintptr
 var layoutReady bool
 var lastTableWidth int
@@ -205,13 +205,11 @@ func layoutWindow() {
 	if w < 1 || h < 1 {
 		return
 	}
-	const headerY, headerH = 10, 29
-	moveControl(titleLabel, 16, headerY, w-126, headerH)
-	moveControl(status, 16, 40, w-32, 21)
+	moveControl(status, 16, headerY, w-126, headerH)
 	moveControl(topButton, w-57, headerY, 40, headerH)
 	moveControl(updateButton, w-103, headerY, 40, headerH)
-	moveControl(horizontalLine, 16, 67, w-32, 1)
-	moveControl(verticalLine, w/2, 81, 1, 105)
+	moveControl(horizontalLine, 16, 45, w-32, 1)
+	moveControl(verticalLine, w/2, 59, 1, 105)
 	for i := 0; i < 2; i++ {
 		x, width := 20, w/2-40
 		if i == 1 {
@@ -219,15 +217,15 @@ func layoutWindow() {
 			width = w - x - 32
 		}
 		a := metricLabels[i]
-		moveControl(a[0], x, 78, width, 21)
-		moveControl(a[1], x, 101, width, 39)
-		moveControl(a[2], x, 143, width, 22)
-		moveControl(a[3], x, 166, 56, 27)
-		moveControl(a[4], x+60, 166, width-60, 27)
+		moveControl(a[0], x, 56, width, 21)
+		moveControl(a[1], x, 79, width, 39)
+		moveControl(a[2], x, 121, width, 22)
+		moveControl(a[3], x, 144, 56, 27)
+		moveControl(a[4], x+60, 144, width-60, 27)
 	}
 	tw := w - 32
 	for _, v := range tableControls {
-		moveControl(v, 16, 207, tw, h-220)
+		moveControl(v, 16, connectionTableY, tw, h-connectionTableInset)
 	}
 	if tw != lastTableWidth {
 		fitColumns(tw)
@@ -256,18 +254,16 @@ func initControls() {
 	largeFont = makeFont(20, 600)
 	numberFont = makeFont(30, 700)
 	smallFont = makeFont(13, 400)
-	floatFont = makeFont(15, 500)
-	// Keep the heading independently sized and grayscale-antialiased to avoid
-	// colored subpixel fringes; vertically center it in the button row.
-	titleFont = makeFontQuality(18, 500, 4)
-	titleLabel = ctrl("STATIC", "网络流量监控", 0x4280, 16, 10, 310, 29, 0, titleFont)
-	colors[titleLabel] = dark
-	status = colored("正在启动 Windows 网络采集…", 16, 40, 672, 21, smallFont, muted)
+	floatFont = makeFontQuality(17, 600, 4)
+	floatDayFont = makeFontQuality(12, 400, 4)
+	// Keep status and both header buttons on the same vertical centerline.
+	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 576, headerH, 0, smallFont)
+	colors[status] = muted
 	topButton = btn("置顶", 647, 10, 40, 29, idTop)
 	updateButton = btn("更新", 601, 10, 40, 29, idUpdate)
 	visible(updateButton, false)
-	horizontalLine = block(16, 67, 672, 1, lineBrush)
-	verticalLine = block(352, 81, 1, 105, lineBrush)
+	horizontalLine = block(16, 45, 672, 1, lineBrush)
+	verticalLine = block(352, 59, 1, 105, lineBrush)
 	for i := 0; i < 2; i++ {
 		x := 20 + i*340
 		c := uintptr(orange)
@@ -276,11 +272,11 @@ func initControls() {
 			c = green
 			name = "本地"
 		}
-		labelDown := colored(name+"下载速度", x, 78, 312, 21, font, c)
-		down := colored("—", x, 101, 312, 39, numberFont, c)
-		up := colored("上传 —", x, 143, 312, 22, font, c)
-		labelDay := colored("今日累计", x, 166, 56, 27, smallFont, c)
-		day := colored("0 B", x+60, 166, 252, 27, largeFont, c)
+		labelDown := colored(name+"下载速度", x, 56, 312, 21, font, c)
+		down := colored("—", x, 79, 312, 39, numberFont, c)
+		up := colored("上传 —", x, 121, 312, 22, font, c)
+		labelDay := colored("今日累计", x, 144, 56, 27, smallFont, c)
+		day := colored("0 B", x+60, 144, 252, 27, largeFont, c)
 		metricLabels[i] = [5]uintptr{labelDown, down, up, labelDay, day}
 		if i == 0 {
 			proxyDown, proxyUp, proxyDay = down, up, day
@@ -807,7 +803,7 @@ func main() {
 	}
 	gdi.NewProc("DeleteObject").Call(font)
 	gdi.NewProc("DeleteObject").Call(largeFont)
-	for _, r := range []uintptr{numberFont, smallFont, floatFont, titleFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, pinActiveBrush} {
+	for _, r := range []uintptr{numberFont, smallFont, floatFont, floatDayFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, pinActiveBrush} {
 		gdi.NewProc("DeleteObject").Call(r)
 	}
 }
