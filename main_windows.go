@@ -404,7 +404,7 @@ func updateView(u Update) {
 }
 func msg(s string) {
 	p, _ := syscall.UTF16PtrFromString(s)
-	title, _ := syscall.UTF16PtrFromString("网络流量监控 V"+appVersion())
+	title, _ := syscall.UTF16PtrFromString("网络流量监控 "+displayVersion(appVersion()))
 	user.NewProc("MessageBoxW").Call(mainWindow, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(title)), 0x40)
 	runtime.KeepAlive(p)
 	runtime.KeepAlive(title)
@@ -816,7 +816,7 @@ func main() {
 	paleBrush = brush(0xf5f2ef)
 	updateActiveBrush = brush(0xe9f5eb)
 	cn, _ := syscall.UTF16PtrFromString("PcTrafficMonitorV31Window")
-	title, _ := syscall.UTF16PtrFromString("网络流量监控 V"+appVersion())
+	title, _ := syscall.UTF16PtrFromString("网络流量监控 "+displayVersion(appVersion()))
 	cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32512)
 	icon, _, _ := user.NewProc("LoadIconW").Call(instance, 1)
 	if icon == 0 {

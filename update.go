@@ -15,6 +15,11 @@ var versionText string
 
 func appVersion() string { return strings.TrimSpace(versionText) }
 
+// The public major version is independent of the monotonic update revision.
+func displayVersion(s string) string {
+ v,ok:=parseVersion(s);if !ok{return "V3"};return fmt.Sprintf("V%d",v[0])
+}
+
 func parseVersion(s string) ([3]int, bool) {
 	var v [3]int
 	s = strings.TrimPrefix(s, "v")

@@ -46,3 +46,10 @@ func TestV3ResetAndFutureUpdate(t *testing.T){
  o,e=versionFileOffer("3.0.1\n","3");if e!=nil||o.Tag!="v3.0.1"{t.Fatal(o,e)}
  o,e=versionFileOffer("3\n","3.13.19");if e!=nil||o.Tag!=""{t.Fatal("unexpected automatic downgrade",o,e)}
 }
+
+func TestPublicVersionAndLegacyUpdate(t *testing.T){
+ if displayVersion("3.13.20")!="V3"||displayVersion("v3")!="V3"||displayVersion("4.0.0")!="V4"{t.Fatal("public version")}
+ for _,old:=range []string{"3","3.13.16","3.13.19"}{
+  o,e:=versionFileOffer("3.13.20\n",old);if e!=nil||o.Tag!="v3.13.20"||o.Exe.Name!="PcTrafficMonitor_V3.13.20.exe"{t.Fatal(old,o,e)}
+ }
+}

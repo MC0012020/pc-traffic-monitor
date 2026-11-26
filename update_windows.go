@@ -185,7 +185,7 @@ func downloadUpdate(o UpdateOffer)(stage,hash string,err error){
 func startUpdate(){
  if updateBusy||updateOffer.Tag==""{return}
  o:=updateOffer
- p,_:=syscall.UTF16PtrFromString("发现 "+o.Tag+"，是否下载并更新？\n更新将短暂退出并重新启动软件，保留今日统计。\n此版本未签名，SHA256 仅验证下载完整性。")
+ p,_:=syscall.UTF16PtrFromString("发现 "+displayVersion(o.Tag)+" 新版本，是否下载并更新？\n更新将短暂退出并重新启动软件，保留今日统计。\n此版本未签名，SHA256 仅验证下载完整性。")
  title,_:=syscall.UTF16PtrFromString("软件更新")
  answer,_,_:=user.NewProc("MessageBoxW").Call(mainWindow,uintptr(unsafe.Pointer(p)),uintptr(unsafe.Pointer(title)),0x10024)
  runtime.KeepAlive(p);runtime.KeepAlive(title)
@@ -200,7 +200,7 @@ func startUpdate(){
 func updateButtonState(){
  if updateButton==0{return}
  visible(updateButton,updateOffer.Tag!="")
- tip:="更新 "+updateOffer.Tag
+ tip:="更新至 "+displayVersion(updateOffer.Tag)+" 最新版"
  if updateBusy{tip="正在下载更新…"}
  updateButtonTip(updateButton,tip)
  user.NewProc("EnableWindow").Call(updateButton,map[bool]uintptr{true:0,false:1}[updateBusy])

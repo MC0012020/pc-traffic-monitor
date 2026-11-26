@@ -2,7 +2,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4)
 ![Go](https://img.shields.io/badge/Go-1.23-00ADD8)
-![Release](https://img.shields.io/github/v/release/MC0012020/pc-traffic-monitor?include_prereleases)
+![Release](https://img.shields.io/badge/Release-V3-blue)
 
 轻量级 Windows 网络流量监控工具。橙色显示 Clash 代理流量，绿色显示本地流量。无需安装运行库；Clash 不运行时也可监控本地流量。
 
@@ -10,7 +10,7 @@
 
 [前往 Releases 下载](https://github.com/MC0012020/pc-traffic-monitor/releases)
 
-下载 `PcTrafficMonitor_V3_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。旧 V3.13.x 版本不能自动降级至 V3，请手动下载 V3 并退出旧程序后替换 EXE（今日统计保留）。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
+下载 `PcTrafficMonitor_V3_Portable.zip`，解压后双击 `PcTrafficMonitor_V3.exe`，允许管理员权限（ETW 采集需要）。也可以直接下载 EXE。升级前从托盘退出旧版。旧版可通过原有更新按钮升级，今日统计保留。对外统一显示 V3，内部更新编号独立递增；发布中保留兼容旧更新器的同内容 EXE。当前版本为未签名预发布，可能出现 Windows SmartScreen 提示，请先核对 SHA256。
 
 ## 功能与操作
 
