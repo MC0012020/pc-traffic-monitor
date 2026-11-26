@@ -93,3 +93,10 @@ func dragExceeded(dx, dy int32) bool { return dx > 4 || dx < -4 || dy > 4 || dy 
 func scaledOffset(v,scale int)int{if v<0{return -floatScaled(-v,scale)};return floatScaled(v,scale)}
 func scaleBetween(v,oldScale,newScale int)int{if oldScale<=0{oldScale=100};return (v*newScale+oldScale/2)/oldScale}
 
+
+// All periodic placement operations preserve Z-order and never activate.
+// Only an explicit show may raise a normal window in its existing layer.
+func floatPlacementFlags(resized,moved,show bool)uintptr{
+ flags:=uintptr(0x0004|0x0010|0x0200)
+ if !resized{flags|=1};if !moved{flags|=2};if show{flags=(flags&^0x0004)|0x0040};return flags
+}

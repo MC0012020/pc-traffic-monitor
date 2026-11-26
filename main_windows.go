@@ -49,6 +49,8 @@ var tableControls []uintptr
 var exitRequested bool
 var proxyState, localState uintptr
 var headerBtns = map[uintptr]bool{}
+var topButton uintptr
+var top bool // default off, shared by both windows
 var paleBrush uintptr
 var numberFont, smallFont, floatFont, floatDayFont uintptr
 
@@ -117,6 +119,7 @@ const (
 	wsBorder         = 0x800000
 	wsVscroll        = 0x200000
 	idApply          = 101
+	idTop            = 102
 	idStart          = 104
 	idFolder         = 105
 	idTrayOpen       = 201
@@ -179,6 +182,23 @@ func makeFontQuality(height, weight int, quality uintptr) uintptr {
 	runtime.KeepAlive(p)
 	return r
 }
+// Explicit pin changes only. Never call from sampling, repaint or a timer.
+func applyWindowTop(h uintptr,on bool) bool {
+ if h==0{return true}
+ after:=^uintptr(1) // HWND_NOTOPMOST
+ if on{after=^uintptr(0)} // HWND_TOPMOST
+ ok,_,_:=setPos.Call(h,after,0,0,0,0,0x0001|0x0002|0x0010|0x0200)
+ return ok!=0
+}
+func toggleTop(){
+ next:=!top
+ if !applyWindowTop(mainWindow,next){return}
+ if !applyWindowTop(floatWindow,next){applyWindowTop(mainWindow,top);return}
+ top=next
+ tip:="置顶";if top{tip="取消置顶"}
+ updateButtonTip(topButton,tip)
+ user.NewProc("InvalidateRect").Call(topButton,0,1)
+}
 func clientSize() (int, int) {
 	var r rect32
 	getClientRect.Call(mainWindow, uintptr(unsafe.Pointer(&r)))
@@ -205,8 +225,9 @@ func layoutWindow() {
 		return
 	}
 	p:=mainPx
-	moveControl(status,p(16),p(headerY),w-p(80),p(headerH))
-	moveControl(updateButton,w-p(57),p(headerY),p(40),p(headerH))
+	moveControl(status,p(16),p(headerY),w-p(126),p(headerH))
+	moveControl(topButton,w-p(57),p(headerY),p(40),p(headerH))
+	moveControl(updateButton,w-p(103),p(headerY),p(40),p(headerH))
 	moveControl(horizontalLine,p(16),p(45),w-p(32),p(1))
 	moveControl(verticalLine,w/2,p(59),p(1),p(105))
 	for i:=0;i<2;i++{
@@ -258,10 +279,11 @@ func initControls() {
 	smallFont = makeFont(mainPx(13), 400)
 	floatFont = makeFontQuality(17, 600, 4)
 	floatDayFont = makeFontQuality(12, 500, 4)
-	// Keep status and the update button on the same vertical centerline.
-	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 622, headerH, 0, smallFont)
+	// Keep status and both header buttons on the same vertical centerline.
+	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 576, headerH, 0, smallFont)
 	colors[status] = muted
-	updateButton = btn("更新", 647, 10, 40, 29, idUpdate)
+	topButton = btn("置顶", 647, 10, 40, 29, idTop)
+	updateButton = btn("更新", 601, 10, 40, 29, idUpdate)
 	visible(updateButton, false)
 	horizontalLine = block(16, 45, 672, 1, lineBrush)
 	verticalLine = block(352, 59, 1, 105, lineBrush)
@@ -309,7 +331,7 @@ func syncMainScale(){
  mainScale=scale
  font,largeFont,numberFont,smallFont=next[0],next[1],next[2],next[3]
  send.Call(status,wmSetFont,smallFont,0)
- for _,v:=range []uintptr{updateButton,horizontalLine,verticalLine}{if v!=0{send.Call(v,wmSetFont,font,0)}}
+ for _,v:=range []uintptr{topButton,updateButton,horizontalLine,verticalLine}{if v!=0{send.Call(v,wmSetFont,font,0)}}
  for _,a:=range metricLabels{for i,v:=range a{if v!=0{f:=font;switch i{case 1:f=numberFont;case 3:f=smallFont;case 4:f=largeFont};send.Call(v,wmSetFont,f,0)}}}
  for _,v:=range tableControls{send.Call(v,wmSetFont,font,0)}
  rescaleConnectionTable(oldScale)
@@ -627,7 +649,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		r := d.Rect
 		fill := paleBrush
-		if d.Hwnd == updateButton {
+		if d.Hwnd == updateButton || (d.Hwnd==topButton && top) {
 			fill = updateActiveBrush
 		}
 		if d.State&1 != 0 {
@@ -644,6 +666,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 			drawUpdateIcon(d.DC, r)
 			return 1
 		}
+		if d.Hwnd==topButton{drawPinIcon(d.DC,r,top);return 1}
 		gdi.NewProc("SetBkMode").Call(d.DC, 1)
 		gdi.NewProc("SetTextColor").Call(d.DC, dark)
 		oldFont, _, _ := gdi.NewProc("SelectObject").Call(d.DC, font)
@@ -678,6 +701,8 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 			changeDisplay(actionFloat)
 		case idUpdate:
 			startUpdate()
+		case idTop:
+			toggleTop()
 		case idStart:
 			toggleStart()
 		case idFolder:

@@ -87,18 +87,20 @@ func floatMeasure(dc uintptr, s string) int {
 	runtime.KeepAlive(v)
 	return max(1, int(size.X)) + 1
 }
+// Measure a reserved symmetric column once per display scale, not per sample.
+// Typical B through TB values fit without changing the capsule's geometry.
 func measureFloat() {
-	dc, _, _ := user.NewProc("GetDC").Call(mainWindow)
-	if dc == 0 {
-		return
-	}
-	defer user.NewProc("ReleaseDC").Call(mainWindow, dc)
-	old, _, _ := gdi.NewProc("SelectObject").Call(dc, floatFont)
-	left, right := floatMeasure(dc, floatLeftText), floatMeasure(dc, floatRightText)
-	gdi.NewProc("SelectObject").Call(dc, floatDayFont)
-	left, right = max(left, floatMeasure(dc, floatLeftDay)), max(right, floatMeasure(dc, floatRightDay))
-	floatWidth, floatDivider, floatRightX = floatDimensionsScaled(left, right,floatScale)
-	gdi.NewProc("SelectObject").Call(dc, old)
+ dc,_,_:=user.NewProc("GetDC").Call(mainWindow)
+ cell:=floatPx(116)
+ if dc!=0{
+  old,_,_:=gdi.NewProc("SelectObject").Call(dc,floatFont)
+  for _,sample:=range []string{"1024 B/s","8888.88 KB/s","8888.88 MB/s","8888.88 GB/s","8888.88 TB/s"}{cell=max(cell,floatMeasure(dc,sample)+floatPx(4))}
+  gdi.NewProc("SelectObject").Call(dc,floatDayFont)
+  for _,sample:=range []string{"8888.88 KB","8888.88 MB","8888.88 GB","8888.88 TB"}{cell=max(cell,floatMeasure(dc,sample)+floatPx(4))}
+  gdi.NewProc("SelectObject").Call(dc,old)
+  user.NewProc("ReleaseDC").Call(mainWindow,dc)
+ }
+ floatWidth,floatDivider,floatRightX=floatDimensionsScaled(cell,cell,floatScale)
 }
 func floatPlace() {
  if floatWindow==0{return}
@@ -110,14 +112,13 @@ func floatPlace() {
  resized:=!floatPlaced||floatPlacedWidth!=floatWidth||floatPlacedHeight!=height
  moved:=!floatPlaced||floatPlacedAnchor!=floatAnchor
  shown,_,_:=user.NewProc("IsWindowVisible").Call(floatWindow)
- // Normal non-activating window: periodic updates never change Z-order.
- // Showing after an explicit user action raises it only within normal windows.
+ // Preserve the existing topmost state; geometry updates never change Z-order.
+ // A hidden window is shown without activation only on explicit user action.
  if resized||moved||shown==0{
-  flags:=uintptr(0x0004|0x0010|0x0200) // NOZORDER | NOACTIVATE | NOOWNERZORDER
-  if !resized{flags|=0x0001}
-  if !moved{flags|=0x0002}
-  if shown==0{flags=(flags&^0x0004)|0x0040} // HWND_TOP, not HWND_TOPMOST
-  if ok,_,_:=setPos.Call(floatWindow,0,uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),flags);ok==0{return}
+  flags:=floatPlacementFlags(resized,moved,shown==0)
+  after:=uintptr(0) // HWND_TOP, only for an explicitly shown normal window
+  if shown==0&&top{flags|=0x0004} // keep existing topmost position
+  if ok,_,_:=setPos.Call(floatWindow,after,uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),flags);ok==0{return}
   floatPlacedWidth,floatPlacedHeight,floatPlacedAnchor,floatPlaced=floatWidth,height,floatAnchor,true
  }
  if resized{
@@ -146,9 +147,8 @@ func refreshFloat() {
 		return
 	}
 	floatLeftText, floatRightText, floatLeftDay, floatRightDay = l, r, ld, rd
-	oldWidth := floatWidth
-	measureFloat()
-	if scaleChanged || oldWidth != floatWidth {
+	if scaleChanged || floatWidth<=0 {
+		measureFloat()
 		floatPlace()
 	} else {
 		invalidateFloat()
@@ -174,7 +174,9 @@ func enterFloating() {
 		}
 		a := workArea(mainWindow)
 		floatAnchor = point{a.R-int32(floatWidth+floatPx(18)),a.B-int32(floatPx(floatHeight)+floatPx(18))}
-		floatWindow, _, _ = createWindow.Call(0x08000080, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
+		exStyle:=uintptr(0x08000080) // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+		if top{exStyle|=8} // establish topmost only at creation
+		floatWindow, _, _ = createWindow.Call(exStyle, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
 		runtime.KeepAlive(cn)
 		if floatWindow == 0 {
 			msg("悬浮窗创建失败")
@@ -211,7 +213,7 @@ func floatText(dc uintptr, s string, x, y, w, h int, f, c uintptr) {
 	gdi.NewProc("SetTextColor").Call(dc, c)
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, f)
 	v, _ := syscall.UTF16PtrFromString(s)
-	user.NewProc("DrawTextW").Call(dc, uintptr(unsafe.Pointer(v)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), 0x0824)
+	user.NewProc("DrawTextW").Call(dc, uintptr(unsafe.Pointer(v)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), 0x8824) // DT_END_ELLIPSIS for exceptional oversized values
 	gdi.NewProc("SelectObject").Call(dc, old)
 	runtime.KeepAlive(v)
 }

@@ -87,3 +87,12 @@ func TestMainResolutionScale(t *testing.T){
  }
 }
 
+
+func TestFloatPlacementNoActivation(t *testing.T){
+ for _,resize:=range []bool{false,true}{for _,move:=range []bool{false,true}{
+  flags:=floatPlacementFlags(resize,move,false)
+  if flags&0x0014!=0x0014||flags&0x0040!=0{t.Fatalf("periodic placement must preserve Z-order and focus: %x",flags)}
+  if (flags&1==0)!=resize||(flags&2==0)!=move{t.Fatal("unexpected geometry flags",flags)}
+  show:=floatPlacementFlags(resize,move,true);if show&0x0050!=0x0050{t.Fatal("explicit show activates",show)}
+ }}
+}
