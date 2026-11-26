@@ -50,7 +50,7 @@ var exitRequested bool
 var proxyState, localState uintptr
 var headerBtns = map[uintptr]bool{}
 var topButton uintptr
-var top bool // default off, shared by both windows
+var top = defaultWindowTop // shared by both windows
 var paleBrush uintptr
 var numberFont, smallFont, floatFont, floatDayFont uintptr
 
@@ -195,8 +195,7 @@ func toggleTop(){
  if !applyWindowTop(mainWindow,next){return}
  if !applyWindowTop(floatWindow,next){applyWindowTop(mainWindow,top);return}
  top=next
- tip:="置顶";if top{tip="取消置顶"}
- updateButtonTip(topButton,tip)
+ updateButtonTip(topButton,windowTopTip(top))
  user.NewProc("InvalidateRect").Call(topButton,0,1)
 }
 func clientSize() (int, int) {
@@ -830,7 +829,7 @@ func main() {
 		msg("窗口创建失败：" + e.Error())
 		return
 	}
-	mainWindow, _, e = createWindow.Call(0, uintptr(unsafe.Pointer(cn)), uintptr(unsafe.Pointer(title)), windowStyle, 0x80000000, 0x80000000, 720, 475, 0, 0, instance, 0)
+	mainWindow, _, e = createWindow.Call(windowTopStyle(0,top), uintptr(unsafe.Pointer(cn)), uintptr(unsafe.Pointer(title)), windowStyle, 0x80000000, 0x80000000, 720, 475, 0, 0, instance, 0)
 	if mainWindow == 0 {
 		msg("窗口创建失败：" + e.Error())
 		return

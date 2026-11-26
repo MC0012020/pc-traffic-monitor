@@ -96,3 +96,10 @@ func TestFloatPlacementNoActivation(t *testing.T){
   show:=floatPlacementFlags(resize,move,true);if show&0x0050!=0x0050{t.Fatal("explicit show activates",show)}
  }}
 }
+
+func TestDefaultTopStyle(t *testing.T){
+ if !defaultWindowTop{t.Fatal("default pin must be on")}
+ if windowTopStyle(0,defaultWindowTop)!=8||windowTopStyle(0x08000080,defaultWindowTop)!=0x08000088{t.Fatal("default windows not pinned")}
+ if windowTopStyle(8,false)!=0||windowTopStyle(0x08000088,false)!=0x08000080{t.Fatal("unpin changes unrelated window styles")}
+ if windowTopTip(true)!="取消置顶"||windowTopTip(false)!="置顶"{t.Fatal("pin tooltip mismatch")}
+}

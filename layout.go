@@ -100,3 +100,13 @@ func floatPlacementFlags(resized,moved,show bool)uintptr{
  flags:=uintptr(0x0004|0x0010|0x0200)
  if !resized{flags|=1};if !moved{flags|=2};if show{flags=(flags&^0x0004)|0x0040};return flags
 }
+
+// One shared initial pin state. Set the extended style at creation rather
+// than raising a visible window. Runtime toggles remain explicit user actions.
+const defaultWindowTop = true
+func windowTopStyle(base uintptr,on bool)uintptr{
+ if on{return base|8};return base&^8
+}
+func windowTopTip(on bool)string{
+ if on{return "取消置顶"};return "置顶"
+}

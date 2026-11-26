@@ -174,8 +174,7 @@ func enterFloating() {
 		}
 		a := workArea(mainWindow)
 		floatAnchor = point{a.R-int32(floatWidth+floatPx(18)),a.B-int32(floatPx(floatHeight)+floatPx(18))}
-		exStyle:=uintptr(0x08000080) // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
-		if top{exStyle|=8} // establish topmost only at creation
+		exStyle:=windowTopStyle(0x08000080,top) // NOACTIVATE | TOOLWINDOW, plus optional TOPMOST
 		floatWindow, _, _ = createWindow.Call(exStyle, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
 		runtime.KeepAlive(cn)
 		if floatWindow == 0 {

@@ -19,10 +19,10 @@ func TestFloatNativeTopAndStableGeometry(t *testing.T) {
   if h==0{t.Fatal("CreateWindowExW failed")}
   return h
  }
- mainWindow=makeWindow(0)
+ mainWindow=makeWindow(windowTopStyle(0,defaultWindowTop))
  defer func(){user.NewProc("DestroyWindow").Call(mainWindow);mainWindow=0}()
- floatWindow=makeWindow(0x08000080)
- defer func(){user.NewProc("DestroyWindow").Call(floatWindow);floatWindow=0;floatPlaced=false;top=false;floatScale=100;floatWidth=0;floatFont=0;floatDayFont=0}()
+ floatWindow=makeWindow(windowTopStyle(0x08000080,defaultWindowTop))
+ defer func(){user.NewProc("DestroyWindow").Call(floatWindow);floatWindow=0;floatPlaced=false;top=defaultWindowTop;floatScale=100;floatWidth=0;floatFont=0;floatDayFont=0}()
  floatFont=makeFontQuality(17,600,4)
  floatDayFont=makeFontQuality(12,500,4)
  defer func(){gdi.NewProc("DeleteObject").Call(floatFont);gdi.NewProc("DeleteObject").Call(floatDayFont)}()
@@ -31,8 +31,8 @@ func TestFloatNativeTopAndStableGeometry(t *testing.T) {
  syncFloatScale(floatMonitor())
  measureFloat()
  style:=func(h uintptr)uintptr{v,_,_:=user.NewProc("GetWindowLongPtrW").Call(h,^uintptr(19));return v}
- if style(floatWindow)&8!=0||style(floatWindow)&0x08000000==0{t.Fatal("unexpected default styles")}
- for _,on:=range []bool{true,false,true}{
+ if style(mainWindow)&8==0||style(floatWindow)&8==0||style(floatWindow)&0x08000000==0{t.Fatal("unexpected default styles")}
+ for _,on:=range []bool{false,true}{
   if !applyWindowTop(mainWindow,on)||!applyWindowTop(floatWindow,on){t.Fatal("topmost transition failed")}
   top=on
   if (style(mainWindow)&8!=0)!=on||(style(floatWindow)&8!=0)!=on{t.Fatal("shared topmost styles mismatch")}

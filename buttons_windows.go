@@ -28,7 +28,7 @@ func initButtonTips() {
 	if buttonTips == 0 {
 		return
 	}
-	for h, label := range map[uintptr]string{topButton: "置顶",updateButton: "软件更新"} {
+	for h, label := range map[uintptr]string{topButton: windowTopTip(top),updateButton: "软件更新"} {
 		if h == 0 {
 			continue
 		}
