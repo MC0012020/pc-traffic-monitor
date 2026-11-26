@@ -19,6 +19,7 @@ var floatPlacedWidth,floatPlacedHeight int
 var floatPlacedAnchor point
 var floatPlaced bool
 var dwmBounds=syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmGetWindowAttribute")
+var queryFullscreenState=shell.NewProc("SHQueryUserNotificationState")
 func floatPx(v int) int {return floatScaled(v,floatScale)}
 var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
@@ -105,7 +106,8 @@ func measureFloat() {
 	floatWidth, floatDivider, floatRightX = floatDimensionsScaled(left, right,floatScale)
 	gdi.NewProc("SelectObject").Call(dc, old)
 }
-// Detect a foreground fullscreen window on the overlay's own monitor.
+// A normal fullscreen window can coexist with a non-activating overlay.
+// Only yield when the shell positively reports exclusive Direct3D mode.
 func floatFullscreen() bool {
  fg,_,_:=user.NewProc("GetForegroundWindow").Call()
  if fg==0||fg==mainWindow||fg==floatWindow{return false}
@@ -125,7 +127,11 @@ func floatFullscreen() bool {
   if int32(hr)!=0{if ok,_,_:=user.NewProc("GetWindowRect").Call(fg,uintptr(unsafe.Pointer(&r)));ok==0{return false}}
  }
  q:=mi.Monitor
- return coversMonitor(int(r.L),int(r.T),int(r.R),int(r.B),int(q.L),int(q.T),int(q.R),int(q.B))
+ sameScreen:=coversMonitor(int(r.L),int(r.T),int(r.R),int(r.B),int(q.L),int(q.T),int(q.R),int(q.B))
+ if !sameScreen||queryFullscreenState.Find()!=nil{return false}
+ var state uint32
+ hr,_,_:=queryFullscreenState.Call(uintptr(unsafe.Pointer(&state)))
+ return shouldYieldFullscreen(sameScreen,int32(hr)==0,state)
 }
 func updateFloatGameVisibility(){
  if currentDisplay!=displayFloat||floatWindow==0{return}

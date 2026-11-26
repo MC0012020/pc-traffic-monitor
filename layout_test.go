@@ -96,3 +96,9 @@ func TestFullscreenOverlayVisibility(t *testing.T){
  for i:=0;i<4;i++{hidden,n=fullscreenVisibility(hidden,false,n)}
  if hidden||n!=0{t.Fatal("restore after stable desktop")}
 }
+
+func TestFullscreenCoexistence(t *testing.T){
+ for _,tc:=range []struct{same,known bool;state uint32;hide bool}{{true,true,2,false},{true,true,3,true},{true,true,4,false},{true,true,5,false},{true,false,3,false},{false,true,3,false},{true,true,7,false}}{
+  if got:=shouldYieldFullscreen(tc.same,tc.known,tc.state);got!=tc.hide{t.Fatal(tc,got)}
+ }
+}

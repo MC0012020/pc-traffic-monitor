@@ -106,3 +106,8 @@ func scaleBetween(v,oldScale,newScale int)int{if oldScale<=0{oldScale=100};retur
   if clearTicks>=4{return false,0}
   return true,clearTicks
  }
+
+// QUNS_RUNNING_D3D_FULL_SCREEN (3) is the shell's exclusive-mode signal.
+// QUNS_BUSY (2) is intentionally not enough: ordinary fullscreen apps
+// may report BUSY and should coexist with the floating window.
+func shouldYieldFullscreen(sameScreen,known bool,state uint32)bool{return sameScreen&&known&&state==3}
