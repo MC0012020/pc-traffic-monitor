@@ -21,8 +21,11 @@ func TestFloatNativeTopAndStableGeometry(t *testing.T) {
  }
  mainWindow=makeWindow(windowTopStyle(0,defaultWindowTop))
  defer func(){user.NewProc("DestroyWindow").Call(mainWindow);mainWindow=0}()
- floatWindow=makeWindow(windowTopStyle(0x08000080,defaultWindowTop))
- defer func(){user.NewProc("DestroyWindow").Call(floatWindow);floatWindow=0;floatPlaced=false;top=defaultWindowTop;floatScale=100;floatWidth=0;floatFont=0;floatDayFont=0}()
+ floatWindow=makeWindow(windowTopStyle(0x08080080,defaultWindowTop))
+ floatLayered=true;floatLayerDirty=true
+ whiteBrush=brush(0xffffff);lineBrush=brush(0xeee9e5)
+ defer func(){gdi.NewProc("DeleteObject").Call(whiteBrush);gdi.NewProc("DeleteObject").Call(lineBrush);whiteBrush=0;lineBrush=0}()
+ defer func(){user.NewProc("DestroyWindow").Call(floatWindow);floatWindow=0;floatPlaced=false;floatLayered=false;floatLayerDirty=false;top=defaultWindowTop;floatScale=100;floatWidth=0;floatFont=0;floatDayFont=0}()
  floatFont=makeFontQuality(17,600,4)
  floatDayFont=makeFontQuality(12,500,4)
  defer func(){gdi.NewProc("DeleteObject").Call(floatFont);gdi.NewProc("DeleteObject").Call(floatDayFont)}()
@@ -38,6 +41,7 @@ func TestFloatNativeTopAndStableGeometry(t *testing.T) {
   if (style(mainWindow)&8!=0)!=on||(style(floatWindow)&8!=0)!=on{t.Fatal("shared topmost styles mismatch")}
  }
  floatPlace()
+ if !floatLayered||!floatPlaced||floatLayerDirty||style(floatWindow)&0x80000==0{t.Fatal("native layered presentation failed")}
  before:=floatWidth
  var bounds rect32
  if ok,_,_:=user.NewProc("GetWindowRect").Call(floatWindow,uintptr(unsafe.Pointer(&bounds)));ok==0{t.Fatal("GetWindowRect failed")}
@@ -49,5 +53,5 @@ func TestFloatNativeTopAndStableGeometry(t *testing.T) {
  refreshFloat()
  var after rect32
  user.NewProc("GetWindowRect").Call(floatWindow,uintptr(unsafe.Pointer(&after)))
- if before!=floatWidth||bounds!=after||style(floatWindow)&8==0{t.Fatal("refresh changed bounds or layer",bounds,after)}
+ if floatLayerDirty||before!=floatWidth||bounds!=after||style(floatWindow)&8==0{t.Fatal("refresh changed bounds or layer",bounds,after)}
 }
