@@ -62,3 +62,17 @@ func TestCompactHeaderAndFloatRows(t *testing.T) {
 	if headerY+headerH >= 45 || connectionTableInset-connectionTableY != 13 { t.Fatal("header or table spacing") }
 	if floatSpeedY+floatSpeedH > floatDayY || floatDayY+floatDayH > floatHeight-4 { t.Fatal("floating rows overlap or clip") }
 }
+
+func TestFloatResolutionScaling(t *testing.T){
+ for _,tc:=range []struct{w,h,scale,speed,day,height int}{
+ {1920,1080,100,17,12,48},{2560,1600,133,23,16,64},{2560,1440,133,23,16,64},
+ {1600,2560,133,23,16,64},{3840,2160,200,34,24,96},{1366,768,100,17,12,48},
+ {0,0,100,17,12,48},{7680,4320,200,34,24,96},
+ }{
+  scale:=floatResolutionScale(tc.w,tc.h)
+  if scale!=tc.scale||floatScaled(17,scale)!=tc.speed||floatScaled(12,scale)!=tc.day||floatScaled(floatHeight,scale)!=tc.height{t.Fatal(tc,scale)}
+  w,d,r:=floatDimensionsScaled(100,90,scale)
+  if d!=100+floatScaled(floatPadding,scale)+floatScaled(floatGap,scale)||r!=d+floatScaled(1,scale)+floatScaled(floatGap,scale)||w!=r+90+floatScaled(floatPadding,scale){t.Fatal(tc,w,d,r)}
+  if floatScaled(floatSpeedY+floatSpeedH,scale)>floatScaled(floatDayY,scale)||floatScaled(floatDayY+floatDayH,scale)>floatScaled(floatHeight,scale){t.Fatal("row overlap",tc)}
+ }
+}

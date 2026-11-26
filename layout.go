@@ -64,11 +64,23 @@ const floatDayY, floatDayH = 28, 16
 const floatPadding = 9
 const floatGap = 8
 
-func floatDimensions(left, right int) (width, divider, rightX int) {
-	left, right = max(1, left), max(1, right)
-	divider = floatPadding + left + floatGap
-	rightX = divider + 1 + floatGap
-	width = rightX + right + floatPadding
-	return
+// Resolution scaling is relative to Full HD, independent of screen orientation.
+// Cap at 200% to preserve the compact capsule on very large displays.
+func floatResolutionScale(width, height int) int {
+ if width<=0||height<=0{return 100}
+ long,short:=max(width,height),min(width,height)
+ return max(100,min(200,min((long*100+960)/1920,(short*100+540)/1080)))
+}
+func floatScaled(value,percent int) int {return (value*percent+50)/100}
+func floatDimensions(left,right int)(width,divider,rightX int){
+ return floatDimensionsScaled(left,right,100)
+}
+func floatDimensionsScaled(left,right,percent int)(width,divider,rightX int){
+ left,right=max(1,left),max(1,right)
+ padding,gap:=floatScaled(floatPadding,percent),floatScaled(floatGap,percent)
+ divider=padding+left+gap
+ rightX=divider+floatScaled(1,percent)+gap
+ width=rightX+right+padding
+ return
 }
 func dragExceeded(dx, dy int32) bool { return dx > 4 || dx < -4 || dy > 4 || dy < -4 }

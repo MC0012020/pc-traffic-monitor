@@ -10,6 +10,8 @@ var floatWindow uintptr
 var floatDragging, floatMoved bool
 var floatAnchor, floatStart, floatOld point
 var floatWidth, floatDivider, floatRightX int
+var floatScale = 100
+func floatPx(v int) int {return floatScaled(v,floatScale)}
 var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
 type monitorInfo struct {
@@ -44,10 +46,33 @@ func workArea(h uintptr) rect32 {
 	m, _, _ := user.NewProc("MonitorFromWindow").Call(h, 2)
 	return monitorWork(m)
 }
-func pointWork(p point) rect32 {
-	v := uintptr(uint64(uint32(p.X)) | uint64(uint32(p.Y))<<32)
-	m, _, _ := user.NewProc("MonitorFromPoint").Call(v, 2)
-	return monitorWork(m)
+func pointMonitor(p point) uintptr {
+ v:=uintptr(uint64(uint32(p.X))|uint64(uint32(p.Y))<<32)
+ m,_,_:=user.NewProc("MonitorFromPoint").Call(v,2)
+ return m
+}
+func floatMonitor() uintptr {
+ if floatDragging{return pointMonitor(cursorPoint())}
+ return pointMonitor(floatAnchor)
+}
+func syncFloatScale(m uintptr) bool {
+ mi:=monitorInfo{Size:uint32(unsafe.Sizeof(monitorInfo{}))}
+ r,_,_:=user.NewProc("GetMonitorInfoW").Call(m,uintptr(unsafe.Pointer(&mi)))
+ if r==0{return false}
+ scale:=floatResolutionScale(int(mi.Monitor.R-mi.Monitor.L),int(mi.Monitor.B-mi.Monitor.T))
+ if scale==floatScale{return false}
+ speed:=makeFontQuality(floatScaled(17,scale),600,4)
+ day:=makeFontQuality(floatScaled(12,scale),500,4)
+ if speed==0||day==0{
+  if speed!=0{gdi.NewProc("DeleteObject").Call(speed)}
+  if day!=0{gdi.NewProc("DeleteObject").Call(day)}
+  return false
+ }
+ oldSpeed,oldDay:=floatFont,floatDayFont
+ floatFont,floatDayFont,floatScale=speed,day,scale
+ gdi.NewProc("DeleteObject").Call(oldSpeed)
+ gdi.NewProc("DeleteObject").Call(oldDay)
+ return true
 }
 func clampPoint(p point, w, h int, area rect32) point {
 	return point{max(area.L, min(p.X, area.R-int32(w))), max(area.T, min(p.Y, area.B-int32(h)))}
@@ -69,20 +94,20 @@ func measureFloat() {
 	left, right := floatMeasure(dc, floatLeftText), floatMeasure(dc, floatRightText)
 	gdi.NewProc("SelectObject").Call(dc, floatDayFont)
 	left, right = max(left, floatMeasure(dc, floatLeftDay)), max(right, floatMeasure(dc, floatRightDay))
-	floatWidth, floatDivider, floatRightX = floatDimensions(left, right)
+	floatWidth, floatDivider, floatRightX = floatDimensionsScaled(left, right,floatScale)
 	gdi.NewProc("SelectObject").Call(dc, old)
 }
 func floatPlace() {
 	if floatWindow == 0 {
 		return
 	}
-	area := pointWork(floatAnchor)
-	if floatDragging {
-		area = pointWork(cursorPoint())
-	}
-	floatAnchor = clampPoint(floatAnchor, floatWidth, floatHeight, area)
-	setPos.Call(floatWindow, ^uintptr(0), uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), floatHeight, 0x0010|0x0040)
-	region, _, _ := gdi.NewProc("CreateRoundRectRgn").Call(0, 0, uintptr(floatWidth+1), floatHeight+1, 12, 12)
+	m:=floatMonitor()
+	if syncFloatScale(m){measureFloat()}
+	area:=monitorWork(m)
+	height:=floatPx(floatHeight)
+	floatAnchor=clampPoint(floatAnchor,floatWidth,height,area)
+	setPos.Call(floatWindow,^uintptr(0),uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),0x0010|0x0040)
+	region,_,_:=gdi.NewProc("CreateRoundRectRgn").Call(0,0,uintptr(floatWidth+1),uintptr(height+1),uintptr(floatPx(12)),uintptr(floatPx(12)))
 	if region != 0 {
 		r, _, _ := user.NewProc("SetWindowRgn").Call(floatWindow, region, 1)
 		if r == 0 {
@@ -106,13 +131,14 @@ func refreshFloat() {
 	}
 	ld, rd := cachedText[proxyDay], cachedText[directDay]
 	if ld == "" { ld = "—" }; if rd == "" { rd = "—" }
-	if l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
+	scaleChanged:=floatWindow!=0&&syncFloatScale(floatMonitor())
+	if !scaleChanged && l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
 		return
 	}
 	floatLeftText, floatRightText, floatLeftDay, floatRightDay = l, r, ld, rd
 	oldWidth := floatWidth
 	measureFloat()
-	if oldWidth != floatWidth {
+	if scaleChanged || oldWidth != floatWidth {
 		floatPlace()
 	} else {
 		invalidateFloat()
@@ -124,6 +150,8 @@ func enterFloating() {
 	}
 	if floatWindow == 0 {
 		floatLeftText, floatRightText = "—", "—"
+		m,_,_:=user.NewProc("MonitorFromWindow").Call(mainWindow,2)
+		syncFloatScale(m)
 		measureFloat()
 		cn, _ := syscall.UTF16PtrFromString("PcTrafficMonitorFloat311")
 		cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32649)
@@ -135,8 +163,8 @@ func enterFloating() {
 			return
 		}
 		a := workArea(mainWindow)
-		floatAnchor = point{a.R - int32(floatWidth) - 18, a.B - floatHeight - 18}
-		floatWindow, _, _ = createWindow.Call(0x08000088, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), floatHeight, 0, 0, instance, 0)
+		floatAnchor = point{a.R-int32(floatWidth+floatPx(18)),a.B-int32(floatPx(floatHeight)+floatPx(18))}
+		floatWindow, _, _ = createWindow.Call(0x08000088, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
 		runtime.KeepAlive(cn)
 		if floatWindow == 0 {
 			msg("悬浮窗创建失败")
@@ -194,15 +222,18 @@ func floatPaint(h uintptr) {
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, whiteBrush)
 	pen, _, _ := gdi.NewProc("CreatePen").Call(0, 1, 0xddd8d3)
 	op, _, _ := gdi.NewProc("SelectObject").Call(dc, pen)
-	gdi.NewProc("RoundRect").Call(dc, 0, 0, uintptr(r.R), uintptr(r.B), 12, 12)
+	gdi.NewProc("RoundRect").Call(dc,0,0,uintptr(r.R),uintptr(r.B),uintptr(floatPx(12)),uintptr(floatPx(12)))
 	gdi.NewProc("SelectObject").Call(dc, op)
 	gdi.NewProc("SelectObject").Call(dc, old)
 	gdi.NewProc("DeleteObject").Call(pen)
-	floatLine(dc, floatDivider, 8, 1, floatHeight-16, lineBrush)
-	floatText(dc, floatLeftText, floatPadding, floatSpeedY, floatDivider-floatGap-floatPadding, floatSpeedH, floatFont, orange)
-	floatText(dc, floatRightText, floatRightX, floatSpeedY, floatWidth-floatRightX-floatPadding, floatSpeedH, floatFont, green)
-	floatText(dc, floatLeftDay, floatPadding, floatDayY, floatDivider-floatGap-floatPadding, floatDayH, floatDayFont, orange)
-	floatText(dc, floatRightDay, floatRightX, floatDayY, floatWidth-floatRightX-floatPadding, floatDayH, floatDayFont, green)
+	padding,gap:=floatPx(floatPadding),floatPx(floatGap)
+	speedY,dayY:=floatPx(floatSpeedY),floatPx(floatDayY)
+	speedH,dayH:=floatPx(floatSpeedY+floatSpeedH)-speedY,floatPx(floatDayY+floatDayH)-dayY
+	floatLine(dc,floatDivider,floatPx(8),floatPx(1),floatPx(floatHeight)-2*floatPx(8),lineBrush)
+	floatText(dc,floatLeftText,padding,speedY,floatDivider-gap-padding,speedH,floatFont,orange)
+	floatText(dc,floatRightText,floatRightX,speedY,floatWidth-floatRightX-padding,speedH,floatFont,green)
+	floatText(dc,floatLeftDay,padding,dayY,floatDivider-gap-padding,dayH,floatDayFont,orange)
+	floatText(dc,floatRightDay,floatRightX,dayY,floatWidth-floatRightX-padding,dayH,floatDayFont,green)
 }
 func floatProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	switch m {
