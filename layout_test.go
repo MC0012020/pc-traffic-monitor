@@ -87,18 +87,3 @@ func TestMainResolutionScale(t *testing.T){
  }
 }
 
-func TestFullscreenOverlayVisibility(t *testing.T){
- if !coversMonitor(0,0,1920,1080,0,0,1920,1080)||!coversMonitor(-2560,0,0,1600,-2560,0,0,1600){t.Fatal("fullscreen not detected")}
- if coversMonitor(0,0,1920,1040,0,0,1920,1080)||coversMonitor(0,0,1920,1080,1920,0,4480,1600){t.Fatal("ordinary window or other monitor")}
- hidden,n:=fullscreenVisibility(false,true,0);if !hidden||n!=0{t.Fatal("hide immediately")}
- for i:=0;i<3;i++{hidden,n=fullscreenVisibility(hidden,false,n);if !hidden{t.Fatal("premature restore")}}
- hidden,n=fullscreenVisibility(hidden,true,n);if !hidden||n!=0{t.Fatal("reset on fullscreen")}
- for i:=0;i<4;i++{hidden,n=fullscreenVisibility(hidden,false,n)}
- if hidden||n!=0{t.Fatal("restore after stable desktop")}
-}
-
-func TestFullscreenCoexistence(t *testing.T){
- for _,tc:=range []struct{same,known bool;state uint32;hide bool}{{true,true,2,false},{true,true,3,true},{true,true,4,false},{true,true,5,false},{true,false,3,false},{false,true,3,false},{true,true,7,false}}{
-  if got:=shouldYieldFullscreen(tc.same,tc.known,tc.state);got!=tc.hide{t.Fatal(tc,got)}
- }
-}

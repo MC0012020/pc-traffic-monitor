@@ -2,7 +2,6 @@ package main
 
 import (
 	"runtime"
-	"time"
 	"syscall"
 	"unsafe"
 )
@@ -12,14 +11,9 @@ var floatDragging, floatMoved bool
 var floatAnchor, floatStart, floatOld point
 var floatWidth, floatDivider, floatRightX int
 var floatScale = 100
-var floatGameHidden bool
-var floatClearTicks int
-var floatClearAt time.Time
 var floatPlacedWidth,floatPlacedHeight int
 var floatPlacedAnchor point
 var floatPlaced bool
-var dwmBounds=syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmGetWindowAttribute")
-var queryFullscreenState=shell.NewProc("SHQueryUserNotificationState")
 func floatPx(v int) int {return floatScaled(v,floatScale)}
 var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
@@ -106,57 +100,8 @@ func measureFloat() {
 	floatWidth, floatDivider, floatRightX = floatDimensionsScaled(left, right,floatScale)
 	gdi.NewProc("SelectObject").Call(dc, old)
 }
-// A normal fullscreen window can coexist with a non-activating overlay.
-// Only yield when the shell positively reports exclusive Direct3D mode.
-func floatFullscreen() bool {
- fg,_,_:=user.NewProc("GetForegroundWindow").Call()
- if fg==0||fg==mainWindow||fg==floatWindow{return false}
- desktop,_,_:=user.NewProc("GetDesktopWindow").Call()
- shellWindow,_,_:=user.NewProc("GetShellWindow").Call()
- if fg==desktop||fg==shellWindow{return false}
- var cls [128]uint16
- user.NewProc("GetClassNameW").Call(fg,uintptr(unsafe.Pointer(&cls[0])),uintptr(len(cls)))
- switch syscall.UTF16ToString(cls[:]){case "Progman","WorkerW","Shell_TrayWnd","Shell_SecondaryTrayWnd":return false}
- if r,_,_:=user.NewProc("IsIconic").Call(fg);r!=0{return false}
- m:=floatMonitor()
- mi:=monitorInfo{Size:uint32(unsafe.Sizeof(monitorInfo{}))}
- if r,_,_:=user.NewProc("GetMonitorInfoW").Call(m,uintptr(unsafe.Pointer(&mi)));r==0{return false}
- var r rect32
- if dwmBounds.Find()!=nil {if ok,_,_:=user.NewProc("GetWindowRect").Call(fg,uintptr(unsafe.Pointer(&r)));ok==0{return false}} else {
-  hr,_,_:=dwmBounds.Call(fg,9,uintptr(unsafe.Pointer(&r)),unsafe.Sizeof(r))
-  if int32(hr)!=0{if ok,_,_:=user.NewProc("GetWindowRect").Call(fg,uintptr(unsafe.Pointer(&r)));ok==0{return false}}
- }
- q:=mi.Monitor
- sameScreen:=coversMonitor(int(r.L),int(r.T),int(r.R),int(r.B),int(q.L),int(q.T),int(q.R),int(q.B))
- if !sameScreen||queryFullscreenState.Find()!=nil{return false}
- var state uint32
- hr,_,_:=queryFullscreenState.Call(uintptr(unsafe.Pointer(&state)))
- return shouldYieldFullscreen(sameScreen,int32(hr)==0,state)
-}
-func updateFloatGameVisibility(){
- if currentDisplay!=displayFloat||floatWindow==0{return}
- blocked:=floatFullscreen()
- if !blocked&&floatGameHidden&&!floatClearAt.IsZero()&&time.Since(floatClearAt)<250*time.Millisecond{return}
- floatClearAt=time.Now()
- hidden,ticks:=fullscreenVisibility(floatGameHidden,blocked,floatClearTicks)
- floatClearTicks=ticks
- if hidden==floatGameHidden{return}
- floatGameHidden=hidden
- if hidden{
-  if floatDragging{floatDragging=false;user.NewProc("ReleaseCapture").Call()}
-  showWindow.Call(floatWindow,0)
- }else{
-  refreshFloat()
-  floatPlace()
- }
-}
 func floatPlace() {
- if floatWindow==0||floatGameHidden{return}
- if floatFullscreen(){
-  floatGameHidden=true;floatClearTicks=0;floatClearAt=time.Now()
-  showWindow.Call(floatWindow,0)
-  return
- }
+ if floatWindow==0{return}
  m:=floatMonitor()
  if syncFloatScale(m){measureFloat()}
  area:=monitorWork(m)
@@ -165,13 +110,13 @@ func floatPlace() {
  resized:=!floatPlaced||floatPlacedWidth!=floatWidth||floatPlacedHeight!=height
  moved:=!floatPlaced||floatPlacedAnchor!=floatAnchor
  shown,_,_:=user.NewProc("IsWindowVisible").Call(floatWindow)
- // Topmost is established by the window's creation style. Do not reassert
- // HWND_TOPMOST, activate, or show a visible window during periodic refresh.
+ // Normal non-activating window: periodic updates never change Z-order.
+ // Showing after an explicit user action raises it only within normal windows.
  if resized||moved||shown==0{
   flags:=uintptr(0x0004|0x0010|0x0200) // NOZORDER | NOACTIVATE | NOOWNERZORDER
   if !resized{flags|=0x0001}
   if !moved{flags|=0x0002}
-  if shown==0{flags|=0x0040}
+  if shown==0{flags=(flags&^0x0004)|0x0040} // HWND_TOP, not HWND_TOPMOST
   if ok,_,_:=setPos.Call(floatWindow,0,uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),flags);ok==0{return}
   floatPlacedWidth,floatPlacedHeight,floatPlacedAnchor,floatPlaced=floatWidth,height,floatAnchor,true
  }
@@ -182,12 +127,11 @@ func floatPlace() {
  invalidateFloat()
 }
 func invalidateFloat() {
-	if floatWindow != 0 && !floatGameHidden {
+	if floatWindow != 0 {
 		user.NewProc("InvalidateRect").Call(floatWindow, 0, 0)
 	}
 }
 func refreshFloat() {
-	if floatGameHidden{return}
 	l, r := cachedText[proxyDown], cachedText[directDown]
 	if l == "" {
 		l = "—"
@@ -230,7 +174,7 @@ func enterFloating() {
 		}
 		a := workArea(mainWindow)
 		floatAnchor = point{a.R-int32(floatWidth+floatPx(18)),a.B-int32(floatPx(floatHeight)+floatPx(18))}
-		floatWindow, _, _ = createWindow.Call(0x08000088, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
+		floatWindow, _, _ = createWindow.Call(0x08000080, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
 		runtime.KeepAlive(cn)
 		if floatWindow == 0 {
 			msg("悬浮窗创建失败")
@@ -241,14 +185,11 @@ func enterFloating() {
 	currentDisplay = displayFloat
 	floatDragging = false
 	floatMoved = false
-	floatGameHidden=false;floatClearTicks=0
 	showWindow.Call(mainWindow, 0)
-	updateFloatGameVisibility()
 	refreshFloat()
 	floatPlace()
 }
 func hideFloat() {
-	floatGameHidden=false;floatClearTicks=0
 	if floatDragging {
 		floatDragging = false
 		user.NewProc("ReleaseCapture").Call()

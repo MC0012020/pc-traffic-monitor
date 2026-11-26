@@ -24,8 +24,7 @@ var setPos = user.NewProc("SetWindowPos")
 var showWindow = user.NewProc("ShowWindow")
 var module = kernel.NewProc("GetModuleHandleW")
 var instance, mainWindow, font, largeFont uintptr
-var status, rates, daily, monthly, quotaLine, detail, adapter, addrEdit, secretEdit, quotaEdit, topButton, startButton uintptr
-var top = true
+var status, rates, daily, monthly, quotaLine, detail, adapter, addrEdit, secretEdit, quotaEdit, startButton uintptr
 var trayIcon, taskbarCreated uintptr
 var trayReady bool
 var currentDisplay = displayFull
@@ -95,7 +94,7 @@ func visible(h uintptr, on bool) {
 	cachedVisible[h] = on
 	v := uintptr(0)
 	if on {
-		v = 5
+		v = 8 // SW_SHOWNA: do not activate on status updates
 	}
 	showWindow.Call(h, v)
 }
@@ -118,7 +117,6 @@ const (
 	wsBorder         = 0x800000
 	wsVscroll        = 0x200000
 	idApply          = 101
-	idTop            = 102
 	idStart          = 104
 	idFolder         = 105
 	idTrayOpen       = 201
@@ -181,17 +179,6 @@ func makeFontQuality(height, weight int, quality uintptr) uintptr {
 	runtime.KeepAlive(p)
 	return r
 }
-func setTop() {
-	v := ^uintptr(0)
-	if !top {
-		v = ^uintptr(1)
-	}
-	setPos.Call(mainWindow, v, 0, 0, 0, 0, 0x0001|0x0002|0x0010)
-	if topButton != 0 {
-		updateButtonTip(topButton, map[bool]string{true: "取消置顶", false: "置顶"}[top])
-		user.NewProc("InvalidateRect").Call(topButton, 0, 1)
-	}
-}
 func clientSize() (int, int) {
 	var r rect32
 	getClientRect.Call(mainWindow, uintptr(unsafe.Pointer(&r)))
@@ -218,9 +205,8 @@ func layoutWindow() {
 		return
 	}
 	p:=mainPx
-	moveControl(status,p(16),p(headerY),w-p(126),p(headerH))
-	moveControl(topButton,w-p(57),p(headerY),p(40),p(headerH))
-	moveControl(updateButton,w-p(103),p(headerY),p(40),p(headerH))
+	moveControl(status,p(16),p(headerY),w-p(80),p(headerH))
+	moveControl(updateButton,w-p(57),p(headerY),p(40),p(headerH))
 	moveControl(horizontalLine,p(16),p(45),w-p(32),p(1))
 	moveControl(verticalLine,w/2,p(59),p(1),p(105))
 	for i:=0;i<2;i++{
@@ -272,11 +258,10 @@ func initControls() {
 	smallFont = makeFont(mainPx(13), 400)
 	floatFont = makeFontQuality(17, 600, 4)
 	floatDayFont = makeFontQuality(12, 500, 4)
-	// Keep status and both header buttons on the same vertical centerline.
-	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 576, headerH, 0, smallFont)
+	// Keep status and the update button on the same vertical centerline.
+	status = ctrl("STATIC", "正在启动 Windows 网络采集…", 0x4280, 16, headerY, 622, headerH, 0, smallFont)
 	colors[status] = muted
-	topButton = btn("置顶", 647, 10, 40, 29, idTop)
-	updateButton = btn("更新", 601, 10, 40, 29, idUpdate)
+	updateButton = btn("更新", 647, 10, 40, 29, idUpdate)
 	visible(updateButton, false)
 	horizontalLine = block(16, 45, 672, 1, lineBrush)
 	verticalLine = block(352, 59, 1, 105, lineBrush)
@@ -324,7 +309,7 @@ func syncMainScale(){
  mainScale=scale
  font,largeFont,numberFont,smallFont=next[0],next[1],next[2],next[3]
  send.Call(status,wmSetFont,smallFont,0)
- for _,v:=range []uintptr{topButton,updateButton,horizontalLine,verticalLine}{if v!=0{send.Call(v,wmSetFont,font,0)}}
+ for _,v:=range []uintptr{updateButton,horizontalLine,verticalLine}{if v!=0{send.Call(v,wmSetFont,font,0)}}
  for _,a:=range metricLabels{for i,v:=range a{if v!=0{f:=font;switch i{case 1:f=numberFont;case 3:f=smallFont;case 4:f=largeFont};send.Call(v,wmSetFont,f,0)}}}
  for _,v:=range tableControls{send.Call(v,wmSetFont,font,0)}
  rescaleConnectionTable(oldScale)
@@ -537,7 +522,6 @@ func changeDisplay(action displayAction) {
 		} else {
 			showWindow.Call(mainWindow, 5)
 		} // keep maximized/restored size
-		setTop()
 		user.NewProc("SetForegroundWindow").Call(mainWindow)
 		requestUpdateCheck()
 	}
@@ -643,8 +627,8 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		r := d.Rect
 		fill := paleBrush
-		if (d.Hwnd == topButton && top) || d.Hwnd == updateButton {
-			fill = pinActiveBrush
+		if d.Hwnd == updateButton {
+			fill = updateActiveBrush
 		}
 		if d.State&1 != 0 {
 			fill = lineBrush
@@ -658,10 +642,6 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		gdi.NewProc("SelectObject").Call(d.DC, oldPen)
 		if d.Hwnd == updateButton {
 			drawUpdateIcon(d.DC, r)
-			return 1
-		}
-		if d.Hwnd == topButton {
-			drawPinIcon(d.DC, r, top)
 			return 1
 		}
 		gdi.NewProc("SetBkMode").Call(d.DC, 1)
@@ -698,9 +678,6 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 			changeDisplay(actionFloat)
 		case idUpdate:
 			startUpdate()
-		case idTop:
-			top = !top
-			setTop()
 		case idStart:
 			toggleStart()
 		case idFolder:
@@ -712,7 +689,6 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
-		updateFloatGameVisibility()
 		syncMainScale()
 		pollUpdateUI()
 		select {
@@ -814,7 +790,7 @@ func main() {
 	grayBrush = brush(0xd9d9d9)
 	lineBrush = brush(0xeee9e5)
 	paleBrush = brush(0xf5f2ef)
-	pinActiveBrush = brush(0xe9f5eb)
+	updateActiveBrush = brush(0xe9f5eb)
 	cn, _ := syscall.UTF16PtrFromString("PcTrafficMonitorV31Window")
 	title, _ := syscall.UTF16PtrFromString("网络流量监控 V"+appVersion())
 	cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32512)
@@ -837,7 +813,6 @@ func main() {
 	mainScale,_=mainMonitorScale()
 	initControls()
 	resizeClient(expandedMinimum())
-	setTop()
 	trayIcon = icon
 	trayReady = notifyTray(0)
 	taskbarName, _ := syscall.UTF16PtrFromString("TaskbarCreated")
@@ -866,7 +841,7 @@ func main() {
 	}
 	gdi.NewProc("DeleteObject").Call(font)
 	gdi.NewProc("DeleteObject").Call(largeFont)
-	for _, r := range []uintptr{numberFont, smallFont, floatFont, floatDayFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, pinActiveBrush} {
+	for _, r := range []uintptr{numberFont, smallFont, floatFont, floatDayFont, whiteBrush, orangeBrush, greenBrush, grayBrush, lineBrush, paleBrush, updateActiveBrush} {
 		gdi.NewProc("DeleteObject").Call(r)
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"unsafe"
 )
 
-// Native tooltips track the pin icon button even when the main window is resized.
-var buttonTips, pinActiveBrush uintptr
+// Native tooltip for the update button.
+var buttonTips, updateActiveBrush uintptr
 var tipStrings = map[uintptr][]uint16{}
 
 type toolInfo struct {
@@ -23,13 +23,12 @@ func initButtonTips() {
 	c := commonControls{8, 0xff} // ICC_WIN95_CLASSES
 	comctl.NewProc("InitCommonControlsEx").Call(uintptr(unsafe.Pointer(&c)))
 	cls, _ := syscall.UTF16PtrFromString("tooltips_class32")
-	buttonTips, _, _ = createWindow.Call(8, uintptr(unsafe.Pointer(cls)), 0, 0x80000003, 0, 0, 0, 0, mainWindow, 0, instance, 0)
+	buttonTips, _, _ = createWindow.Call(0, uintptr(unsafe.Pointer(cls)), 0, 0x80000003, 0, 0, 0, 0, mainWindow, 0, instance, 0)
 	runtime.KeepAlive(cls)
 	if buttonTips == 0 {
 		return
 	}
-	setPos.Call(buttonTips, ^uintptr(0), 0, 0, 0, 0, 0x0013)
-	for h, label := range map[uintptr]string{topButton: "取消置顶", updateButton: "软件更新"} {
+	for h, label := range map[uintptr]string{updateButton: "软件更新"} {
 		if h == 0 {
 			continue
 		}
@@ -68,21 +67,3 @@ func releaseButtonTips() {
 	clear(tipStrings)
 }
 
-// An outline pushpin and a subtle green active background distinguish the toggle
-// without introducing text or changing the button's dimensions.
-func drawPinIcon(dc uintptr, r rect32, on bool) {
-	x, y := (r.L+r.R)/2, (r.T+r.B)/2
-	c := uintptr(dark)
-	if on {
-		c = green
-	}
-	pen, _, _ := gdi.NewProc("CreatePen").Call(0, uintptr(mainPx(1)), c)
-	old, _, _ := gdi.NewProc("SelectObject").Call(dc, pen)
-	outline := []point{{x - mainOffset(4), y - mainOffset(8)}, {x + mainOffset(4), y - mainOffset(8)}, {x + mainOffset(3), y - mainOffset(5)}, {x + mainOffset(3), y - mainOffset(1)}, {x + mainOffset(6), y + mainOffset(2)}, {x + mainOffset(6), y + mainOffset(3)}, {x - mainOffset(6), y + mainOffset(3)}, {x - mainOffset(6), y + mainOffset(2)}, {x - mainOffset(3), y - mainOffset(1)}, {x - mainOffset(3), y - mainOffset(5)}, {x - mainOffset(4), y - mainOffset(8)}}
-	gdi.NewProc("Polyline").Call(dc, uintptr(unsafe.Pointer(&outline[0])), uintptr(len(outline)))
-	gdi.NewProc("MoveToEx").Call(dc, uintptr(x), uintptr(y+mainOffset(3)), 0)
-	gdi.NewProc("LineTo").Call(dc, uintptr(x), uintptr(y+mainOffset(10)))
-	gdi.NewProc("SelectObject").Call(dc, old)
-	gdi.NewProc("DeleteObject").Call(pen)
-	runtime.KeepAlive(outline)
-}
