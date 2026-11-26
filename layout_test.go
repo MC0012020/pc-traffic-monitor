@@ -103,15 +103,3 @@ func TestDefaultTopStyle(t *testing.T){
  if windowTopStyle(8,false)!=0||windowTopStyle(0x08000088,false)!=0x08000080{t.Fatal("unpin changes unrelated window styles")}
  if windowTopTip(true)!="取消置顶"||windowTopTip(false)!="置顶"{t.Fatal("pin tooltip mismatch")}
 }
-
-
-func TestPinOneShotRecovery(t *testing.T){
- var p pinRecoveryState
- if p.allow(1,1,10000)||p.allow(0,2,10000){t.Fatal("invalid target")}
- if !p.allow(1,2,10000){t.Fatal("first recovery denied")}
- if p.allow(1,2,20000)||p.allow(1,3,11000){t.Fatal("repeated raise or cooldown violation")}
- if !p.allow(1,3,13000)||p.allow(1,2,24000){t.Fatal("foreground HWND repeat policy")}
- p.attempted=nil
- if p.allow(1,2,14000)||!p.allow(1,2,16000){t.Fatal("explicit reset/cooldown")}
- if !pinRectsOverlap(0,0,100,100,10,10,20,20)||pinRectsOverlap(0,0,100,100,100,0,200,100)||pinRectsOverlap(0,0,100,100,20,20,10,10){t.Fatal("overlap detection")}
-}

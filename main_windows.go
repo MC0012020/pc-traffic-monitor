@@ -195,7 +195,6 @@ func toggleTop(){
  if !applyWindowTop(mainWindow,next){return}
  if !applyWindowTop(floatWindow,next){applyWindowTop(mainWindow,top);return}
  top=next
- resetPinRecovery()
  updateButtonTip(topButton,windowTopTip(top))
  user.NewProc("InvalidateRect").Call(topButton,0,1)
 }
@@ -532,14 +531,12 @@ func changeDisplay(action displayAction) {
 		}
 		hideButtonTip()
 		currentDisplay = displayBackground
-		resetPinRecovery()
 		hideFloat()
 		showWindow.Call(mainWindow, 0)
 		return
 	}
 	if target == displayFull && (currentDisplay != displayFull || action == actionOpen) {
 		currentDisplay = displayFull
-		resetPinRecovery()
 		hideFloat()
 		if r, _, _ := user.NewProc("IsIconic").Call(mainWindow); r != 0 {
 			showWindow.Call(mainWindow, 9) // restore an iconified window
@@ -716,7 +713,6 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
-		processPinEvent()
 		syncMainScale()
 		pollUpdateUI()
 		select {
@@ -739,7 +735,6 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmDestroy:
-		stopPinEvents()
 		destroyFloat()
 		releaseButtonTips()
 		releaseConnectionTable()
@@ -849,7 +844,6 @@ func main() {
 	if len(os.Args)==3 && os.Args[1]=="--cleanup-update" { go cleanupUpdate(os.Args[2]) }
 	go runWorker(settings, updates, done, stopped)
 	go updateCheckLoop()
-	startPinEvents()
 	user.NewProc("SetTimer").Call(mainWindow, 1, 250, 0)
 	showWindow.Call(mainWindow, 5)
 	user.NewProc("UpdateWindow").Call(mainWindow)

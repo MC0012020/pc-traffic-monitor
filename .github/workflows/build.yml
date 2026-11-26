@@ -45,7 +45,7 @@ jobs:
           $env:GOARCH = 'amd64'
           $env:CGO_ENABLED = '0'
           $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
+          if ($version -notmatch '^(3|\d+\.\d+\.\d+)$') { throw 'Invalid version' }
           $short = $version -replace '\.0$',''
           $exe = "PcTrafficMonitor_V$short.exe"
           go build -trimpath -ldflags='-s -w -H windowsgui' -o "dist/$exe" .
@@ -78,11 +78,35 @@ jobs:
         run: |
           set -euo pipefail
           version="$(tr -d '\r\n' < VERSION)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$version" =~ ^(3|[0-9]+\.[0-9]+\.[0-9]+)$ ]]
           tag="v$version"
           (cd dist && sha256sum -c SHA256SUMS.txt)
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release already exists: $tag. Bump VERSION for a new release."
-            exit 0
+          else
+            gh release create "$tag" dist/*.exe dist/*_Portable.zip dist/SHA256SUMS.txt dist/test-results.txt dist/app.ico dist/icon_windows_amd64.syso --target "$GITHUB_SHA" --title "PcTrafficMonitor $tag" --notes-file RELEASE_NOTES.md --prerelease
           fi
-          gh release create "$tag" dist/*.exe dist/*_Portable.zip dist/SHA256SUMS.txt dist/test-results.txt dist/app.ico dist/icon_windows_amd64.syso --target "$GITHUB_SHA" --title "PcTrafficMonitor $tag" --notes-file RELEASE_NOTES.md --prerelease
+      - name: Verify V3 release and remove superseded releases
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$(tr -d '\r\n' < VERSION)" == "3" ]] || exit 0
+          # Do not clean from an outdated workflow run.
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]] || exit 0
+          mkdir -p verified-v3
+          gh release download v3 --pattern 'PcTrafficMonitor_V3.exe' --pattern 'SHA256SUMS.txt' --dir verified-v3
+          cmp dist/SHA256SUMS.txt verified-v3/SHA256SUMS.txt
+          cmp dist/PcTrafficMonitor_V3.exe verified-v3/PcTrafficMonitor_V3.exe
+          # Only the explicitly enumerated superseded release series.
+          for old in v3.12.0 v3.13.{0..19}; do
+            if gh release view "$old" >/dev/null 2>&1; then
+              gh release delete "$old" --cleanup-tag --yes
+            elif git ls-remote --exit-code origin "refs/tags/$old" >/dev/null 2>&1; then
+              git push origin ":refs/tags/$old"
+            fi
+          done
+          gh release list --limit 100 --json tagName --jq '.[].tagName'
+

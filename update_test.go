@@ -38,3 +38,11 @@ func TestActualReleaseJSON(t *testing.T){
  }
  o,ok:=pickUpdate(rs,"3.13.4");if !ok||o.Tag!="v3.13.6"{t.Fatal(o,ok)}
 }
+
+func TestV3ResetAndFutureUpdate(t *testing.T){
+ if v,ok:=parseVersion("v3");!ok||v!=([3]int{3,0,0}){t.Fatal(v,ok)}
+ if newer("v3","3.13.19")||newer("v3","3.0.0")||!newer("3.0.1","3"){t.Fatal("version ordering")}
+ o,e:=versionFileOffer("3\n","2.9.0");if e!=nil||o.Tag!="v3"||o.Exe.Name!="PcTrafficMonitor_V3.exe"{t.Fatal(o,e)}
+ o,e=versionFileOffer("3.0.1\n","3");if e!=nil||o.Tag!="v3.0.1"{t.Fatal(o,e)}
+ o,e=versionFileOffer("3\n","3.13.19");if e!=nil||o.Tag!=""{t.Fatal("unexpected automatic downgrade",o,e)}
+}

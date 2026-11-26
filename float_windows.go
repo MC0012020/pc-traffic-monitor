@@ -14,7 +14,6 @@ var floatScale = 100
 var floatPlacedWidth,floatPlacedHeight int
 var floatPlacedAnchor point
 var floatPlaced bool
-var floatLayered, floatLayerDirty bool
 func floatPx(v int) int {return floatScaled(v,floatScale)}
 var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
@@ -103,7 +102,7 @@ func measureFloat() {
  }
  floatWidth,floatDivider,floatRightX=floatDimensionsScaled(cell,cell,floatScale)
 }
-func floatPlaceGDI() {
+func floatPlace() {
  if floatWindow==0{return}
  m:=floatMonitor()
  if syncFloatScale(m){measureFloat()}
@@ -129,75 +128,9 @@ func floatPlaceGDI() {
  invalidateFloat()
 }
 func invalidateFloat() {
- if floatWindow==0{return}
- if floatLayered{
-  floatLayerDirty=!renderFloatLayer(false)
- }else{
-  user.NewProc("InvalidateRect").Call(floatWindow,0,0)
- }
-}
-// Layer geometry and Z-order are separate. UpdateLayeredWindow never receives
-// a destination point on a text-only refresh. The GDI fallback is selected
-// only if the initial layered presentation fails.
-func floatPlace(){
- if floatWindow==0{return}
- if !floatLayered{floatPlaceGDI();return}
- if syncFloatScale(floatMonitor()){measureFloat()}
- height:=floatPx(floatHeight)
- floatAnchor=clampPoint(floatAnchor,floatWidth,height,monitorWork(floatMonitor()))
- resized:=!floatPlaced||floatPlacedWidth!=floatWidth||floatPlacedHeight!=height
- moved:=!floatPlaced||floatPlacedAnchor!=floatAnchor
- shown,_,_:=user.NewProc("IsWindowVisible").Call(floatWindow)
- if resized||moved||!floatPlaced||floatLayerDirty{
-  if !renderFloatLayer(true){
-   floatLayerDirty=true
-   if !floatPlaced{
-    style,_,_:=user.NewProc("GetWindowLongPtrW").Call(floatWindow,^uintptr(19))
-    user.NewProc("SetWindowLongPtrW").Call(floatWindow,^uintptr(19),style&^0x80000)
-    actual,_,_:=user.NewProc("GetWindowLongPtrW").Call(floatWindow,^uintptr(19))
-    if actual&0x80000==0{floatLayered=false;floatLayerDirty=false;floatPlaceGDI()}
-   }
-   return
-  }
-  floatPlacedWidth,floatPlacedHeight,floatPlacedAnchor,floatPlaced=floatWidth,height,floatAnchor,true
-  floatLayerDirty=false
- }
- if shown==0{
-  after:=uintptr(0)
-  if top{after=^uintptr(0)}
-  setPos.Call(floatWindow,after,0,0,0,0,0x0001|0x0002|0x0010|0x0200|0x0040)
- }
-}
-// Color-keyed offscreen composition keeps the existing rounded appearance.
-// No SetWindowRgn, show, activation, or Z-order calls on text updates.
-func renderFloatLayer(place bool)bool{
- if floatWindow==0||floatWidth<=0{return false}
- w,h:=floatWidth,floatPx(floatHeight)
- screen,_,_:=user.NewProc("GetDC").Call(0)
- if screen==0{return false}
- defer user.NewProc("ReleaseDC").Call(0,screen)
- dc,_,_:=gdi.NewProc("CreateCompatibleDC").Call(screen)
- if dc==0{return false}
- defer gdi.NewProc("DeleteDC").Call(dc)
- bitmap,_,_:=gdi.NewProc("CreateCompatibleBitmap").Call(screen,uintptr(w),uintptr(h))
- if bitmap==0{return false}
- defer gdi.NewProc("DeleteObject").Call(bitmap)
- old,_,_:=gdi.NewProc("SelectObject").Call(dc,bitmap)
- if old==0||old==^uintptr(0){return false}
- defer gdi.NewProc("SelectObject").Call(dc,old)
- const key=0x00ff00ff
- keyBrush:=brush(key)
- if keyBrush==0{return false}
- defer gdi.NewProc("DeleteObject").Call(keyBrush)
- r:=rect32{0,0,int32(w),int32(h)}
- if ok,_,_:=user.NewProc("FillRect").Call(dc,uintptr(unsafe.Pointer(&r)),keyBrush);ok==0{return false}
- drawFloatContent(dc,r)
- size,origin:=point{int32(w),int32(h)},point{}
- var dest uintptr
- if place{dest=uintptr(unsafe.Pointer(&floatAnchor))}
- ok,_,_:=user.NewProc("UpdateLayeredWindow").Call(floatWindow,screen,dest,uintptr(unsafe.Pointer(&size)),dc,uintptr(unsafe.Pointer(&origin)),key,0,1)
- runtime.KeepAlive(size);runtime.KeepAlive(origin)
- return ok!=0
+	if floatWindow != 0 {
+		user.NewProc("InvalidateRect").Call(floatWindow, 0, 0)
+	}
 }
 func refreshFloat() {
 	l, r := cachedText[proxyDown], cachedText[directDown]
@@ -210,14 +143,12 @@ func refreshFloat() {
 	ld, rd := cachedText[proxyDay], cachedText[directDay]
 	if ld == "" { ld = "—" }; if rd == "" { rd = "—" }
 	scaleChanged:=floatWindow!=0&&syncFloatScale(floatMonitor())
-	if !scaleChanged && !floatLayerDirty && l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
+	if !scaleChanged && l == floatLeftText && r == floatRightText && ld == floatLeftDay && rd == floatRightDay && floatWidth > 0 {
 		return
 	}
 	floatLeftText, floatRightText, floatLeftDay, floatRightDay = l, r, ld, rd
 	if scaleChanged || floatWidth<=0 {
 		measureFloat()
-		floatPlace()
-	} else if !floatPlaced||floatLayerDirty {
 		floatPlace()
 	} else {
 		invalidateFloat()
@@ -243,19 +174,16 @@ func enterFloating() {
 		}
 		a := workArea(mainWindow)
 		floatAnchor = point{a.R-int32(floatWidth+floatPx(18)),a.B-int32(floatPx(floatHeight)+floatPx(18))}
-		exStyle:=windowTopStyle(0x08080080,top) // LAYERED | NOACTIVATE | TOOLWINDOW, optional TOPMOST
+		exStyle:=windowTopStyle(0x08000080,top) // NOACTIVATE | TOOLWINDOW, plus optional TOPMOST
 		floatWindow, _, _ = createWindow.Call(exStyle, uintptr(unsafe.Pointer(cn)), 0, 0x80000000, uintptr(floatAnchor.X), uintptr(floatAnchor.Y), uintptr(floatWidth), uintptr(floatPx(floatHeight)), 0, 0, instance, 0)
 		runtime.KeepAlive(cn)
 		if floatWindow == 0 {
 			msg("悬浮窗创建失败")
 			return
 		}
-		floatLayered=true
-		floatLayerDirty=true
 	}
 	hideButtonTip()
 	currentDisplay = displayFloat
-	resetPinRecovery()
 	floatDragging = false
 	floatMoved = false
 	showWindow.Call(mainWindow, 0)
@@ -277,8 +205,6 @@ func destroyFloat() {
 		user.NewProc("DestroyWindow").Call(floatWindow)
 		floatWindow = 0
 		floatPlaced=false
-		floatLayered=false
-		floatLayerDirty=false
 	}
 }
 func floatText(dc uintptr, s string, x, y, w, h int, f, c uintptr) {
@@ -303,11 +229,7 @@ func floatPaint(h uintptr) {
 	defer user.NewProc("EndPaint").Call(h, uintptr(unsafe.Pointer(&ps)))
 	var r rect32
 	getClientRect.Call(h, uintptr(unsafe.Pointer(&r)))
-	if floatLayered{return} // layered content is presented offscreen
 	user.NewProc("FillRect").Call(dc, uintptr(unsafe.Pointer(&r)), whiteBrush)
-	drawFloatContent(dc,r)
-}
-func drawFloatContent(dc uintptr,r rect32){
 	gdi.NewProc("SetBkMode").Call(dc, 1)
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, whiteBrush)
 	pen, _, _ := gdi.NewProc("CreatePen").Call(0, 1, 0xddd8d3)

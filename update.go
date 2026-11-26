@@ -18,6 +18,8 @@ func appVersion() string { return strings.TrimSpace(versionText) }
 func parseVersion(s string) ([3]int, bool) {
 	var v [3]int
 	s = strings.TrimPrefix(s, "v")
+	// V3 is the public reset release, ordered as 3.0.0.
+	if s == "3" { return [3]int{3,0,0}, true }
 	p := strings.Split(s, ".")
 	if len(p) != 3 { return v, false }
 	for i, n := range p {
@@ -81,7 +83,7 @@ const rawVersionURL = "https://raw.githubusercontent.com/MC0012020/pc-traffic-mo
 func versionFileOffer(body, current string) (UpdateOffer, error) {
  v:=strings.TrimSpace(body)
  parsed,ok:=parseVersion(v)
- if !ok || v!=fmt.Sprintf("%d.%d.%d",parsed[0],parsed[1],parsed[2]) {return UpdateOffer{},fmt.Errorf("invalid VERSION file")}
+ if !ok || (v!="3" && v!=fmt.Sprintf("%d.%d.%d",parsed[0],parsed[1],parsed[2])) {return UpdateOffer{},fmt.Errorf("invalid VERSION file")}
  if !newer(v,current){return UpdateOffer{},nil}
  tag:="v"+v
  name:="PcTrafficMonitor_V"+strings.TrimSuffix(v,".0")+".exe"
