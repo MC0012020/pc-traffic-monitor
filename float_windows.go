@@ -184,7 +184,7 @@ func enterFloating() {
 	}
 	hideButtonTip()
 	currentDisplay = displayFloat
-	resetPinRecovery()
+	syncRTSSOverlay()
 	floatDragging = false
 	floatMoved = false
 	showWindow.Call(mainWindow, 0)

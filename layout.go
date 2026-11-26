@@ -111,21 +111,3 @@ func windowTopTip(on bool)string{
  if on{return "取消置顶"};return "置顶"
 }
 
-// A bounded one-shot recovery policy. A competing foreground HWND never
-// triggers an endless raise/lower loop, even after temporarily losing focus.
-type pinRecoveryState struct{
- attempted map[[2]uintptr]bool
- lastMS int64
-}
-func (p *pinRecoveryState)allow(target,fg uintptr,nowMS int64)bool{
- if target==0||fg==0||target==fg{return false}
- key:=[2]uintptr{target,fg}
- if p.attempted[key]||len(p.attempted)>=256{return false}
- if p.lastMS!=0&&nowMS-p.lastMS<3000{return false}
- if p.attempted==nil{p.attempted=make(map[[2]uintptr]bool)}
- p.attempted[key]=true;p.lastMS=nowMS
- return true
-}
-func pinRectsOverlap(al,at,ar,ab,bl,bt,br,bb int)bool{
- return ar>al&&ab>at&&br>bl&&bb>bt&&max(al,bl)<min(ar,br)&&max(at,bt)<min(ab,bb)
-}
