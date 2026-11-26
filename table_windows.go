@@ -87,7 +87,7 @@ func initConnectionTable() {
 	send.Call(connectionTable, 0x1026, 0, 0xffffff) // LVM_SETTEXTBKCOLOR
 	send.Call(connectionTable, 0x1024, 0, dark)     // LVM_SETTEXTCOLOR
 	// A small image list sets a consistent, comfortable row height. No row icons.
-	tableImages, _, _ = comctl.NewProc("ImageList_Create").Call(1, 30, 0x20, 1, 1)
+	tableImages, _, _ = comctl.NewProc("ImageList_Create").Call(1, uintptr(mainPx(30)), 0x20, 1, 1)
 	if tableImages != 0 {
 		send.Call(connectionTable, 0x1003, 1, tableImages)
 	}
@@ -98,7 +98,7 @@ func initConnectionTable() {
 	}{{"程序", 112, 0}, {"目标地址", 182, 0}, {"类型", 64, 0}, {"下载/s", 98, 1}, {"上传/s", 98, 1}, {"最近活动", 96, 0}}
 	for i, col := range columns {
 		p, _ := syscall.UTF16PtrFromString(col.title)
-		v := lvColumn{Mask: 1 | 2 | 4, Fmt: col.fmt, Width: col.width, Text: p}
+		v := lvColumn{Mask: 1 | 2 | 4, Fmt: col.fmt, Width: int32(mainPx(int(col.width))), Text: p}
 		send.Call(connectionTable, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&v)))
 		runtime.KeepAlive(p)
 	}
@@ -109,8 +109,8 @@ func initConnectionTable() {
 	tableAltBrush = brush(0xfdfcfb)
 	proxyPillBrush = brush(0xe6f1fc)
 	localPillBrush = brush(0xe8f5e6)
-	tableHeaderFont = makeFont(13, 600)
-	tableSmallFont = makeFont(12, 400)
+	tableHeaderFont = makeFont(mainPx(13), 600)
+	tableSmallFont = makeFont(mainPx(12), 400)
 	tableHeader, _, _ = send.Call(connectionTable, 0x101f, 0, 0) // LVM_GETHEADER
 	if tableHeader != 0 {
 		headerHook = syscall.NewCallback(headerProc)
@@ -118,8 +118,33 @@ func initConnectionTable() {
 		headerInstalled = r != 0
 		send.Call(tableHeader, wmSetFont, tableHeaderFont, 1)
 		// Recalculate the list's internal header geometry after subclassing.
-		setPos.Call(connectionTable, 0, 16, connectionTableY, 672, 218, 0x0004|0x0010|0x0020)
+		setPos.Call(connectionTable, 0, uintptr(mainPx(16)), uintptr(mainPx(connectionTableY)), uintptr(mainPx(672)), uintptr(mainPx(218)), 0x0004|0x0010|0x0020)
 	}
+}
+
+func rescaleConnectionTable(oldScale int) {
+ if connectionTable==0{return}
+ // Preserve user column proportions rather than reinitializing the list.
+ for i:=range columnReference{
+  if v,_,_:=send.Call(connectionTable,0x101d,uintptr(i),0);!columnReferenceReady||int(v)!=columnApplied[i]{columnReference[i]=int(v)}
+  columnReference[i]=scaleBetween(columnReference[i],oldScale,mainScale)
+ }
+ columnReferenceReady=true
+ // The current native widths still equal columnApplied until fitColumns runs.
+ for i:=range columnApplied{v,_,_:=send.Call(connectionTable,0x101d,uintptr(i),0);columnApplied[i]=int(v)}
+ newHeader,newSmall:=makeFont(mainPx(13),600),makeFont(mainPx(12),400)
+ if newHeader!=0{
+  old:=tableHeaderFont;tableHeaderFont=newHeader
+  if tableHeader!=0{send.Call(tableHeader,wmSetFont,newHeader,0)}
+  if old!=0{gdi.NewProc("DeleteObject").Call(old)}
+ }
+ if newSmall!=0{old:=tableSmallFont;tableSmallFont=newSmall;if old!=0{gdi.NewProc("DeleteObject").Call(old)}}
+ image,_,_:=comctl.NewProc("ImageList_Create").Call(1,uintptr(mainPx(30)),0x20,1,1)
+ if image!=0{
+  old:=tableImages;send.Call(connectionTable,0x1003,1,image);tableImages=image
+  if old!=0{comctl.NewProc("ImageList_Destroy").Call(old)}
+ }
+ setPos.Call(connectionTable,0,0,0,0,0,0x0001|0x0002|0x0004|0x0010|0x0020)
 }
 
 func releaseConnectionTable() {
@@ -248,8 +273,8 @@ func headerProc(h uintptr, m uint32, w, l, id, ref uintptr) uintptr {
 		if result != 0 && l != 0 {
 			v := (*headerLayout)(unsafe.Pointer(l))
 			if v.Pos != nil && v.Rect != nil {
-				delta := int32(34) - v.Pos.CY
-				v.Pos.CY = 34
+				delta := int32(mainPx(34)) - v.Pos.CY
+				v.Pos.CY = int32(mainPx(34))
 				v.Rect.T += delta
 			}
 		}
@@ -301,24 +326,25 @@ func paintHeader(h, dc uintptr) {
 		if i == 3 || i == 4 {
 			a = 2
 		}
-		drawLabel(dc, title, inset(r, 10), tableHeaderFont, muted, a)
+		drawLabel(dc, title, inset(r, int32(mainPx(10))), tableHeaderFont, muted, a)
 		if i < len(columnTitles)-1 {
-			fill(dc, rect32{r.R - 1, r.T + 10, r.R, r.B - 10}, lineBrush)
+			fill(dc, rect32{r.R-int32(mainPx(1)),r.T+int32(mainPx(10)),r.R,r.B-int32(mainPx(10))}, lineBrush)
 		}
 	}
-	fill(dc, rect32{0, client.B - 1, client.R, client.B}, lineBrush)
+	fill(dc, rect32{0, client.B-int32(mainPx(1)),client.R,client.B}, lineBrush)
 }
 func drawPill(dc uintptr, r rect32, s string, kind int) {
-	if r.R-r.L < 34 {
-		drawLabel(dc, s, inset(r, 4), tableSmallFont, muted, 1)
+	if r.R-r.L < int32(mainPx(34)) {
+		drawLabel(dc, s, inset(r, int32(mainPx(4))), tableSmallFont, muted, 1)
 		return
 	}
-	w := int32(42)
-	if r.R-r.L-8 < w {
-		w = r.R - r.L - 8
+	w := int32(mainPx(42))
+	gap,height:=int32(mainPx(8)),int32(mainPx(20))
+	if r.R-r.L-gap < w {
+		w = r.R-r.L-gap
 	}
 	x := (r.L + r.R - w) / 2
-	y := (r.T + r.B - 20) / 2
+	y := (r.T + r.B - height) / 2
 	b, c := proxyPillBrush, uintptr(orange)
 	if kind == Direct {
 		b, c = localPillBrush, green
@@ -326,10 +352,10 @@ func drawPill(dc uintptr, r rect32, s string, kind int) {
 	old, _, _ := selectObject.Call(dc, b)
 	pen, _, _ := gdi.NewProc("GetStockObject").Call(8)
 	oldPen, _, _ := selectObject.Call(dc, pen)
-	gdi.NewProc("RoundRect").Call(dc, uintptr(x), uintptr(y), uintptr(x+w), uintptr(y+20), 8, 8)
+	gdi.NewProc("RoundRect").Call(dc, uintptr(x), uintptr(y), uintptr(x+w), uintptr(y+height),uintptr(gap),uintptr(gap))
 	selectObject.Call(dc, old)
 	selectObject.Call(dc, oldPen)
-	drawLabel(dc, s, rect32{x, y, x + w, y + 20}, tableSmallFont, c, 1)
+	drawLabel(dc, s, rect32{x, y, x + w, y + height}, tableSmallFont, c, 1)
 }
 func paintRow(d *lvCustomDraw, i int) bool {
 	if !headerInstalled || i < 0 || i >= len(displayCells) {
@@ -392,9 +418,9 @@ func paintRow(d *lvCustomDraw, i int) bool {
 				color = green
 			}
 		}
-		drawLabel(dc, s, inset(c, 10), f, color, a)
+		drawLabel(dc, s, inset(c, int32(mainPx(10))), f, color, a)
 	}
-	fill(dc, rect32{0, r.B - 1, client.R, r.B}, lineBrush)
+	fill(dc, rect32{0, r.B-int32(mainPx(1)),client.R,r.B}, lineBrush)
 	return true
 }
 func tableNotify(l uintptr) (uintptr, bool) {
@@ -433,7 +459,7 @@ func fitColumns(width int) {
 	if connectionTable == 0 {
 		return
 	}
-	target := width - 4 // visible rows fit; no scrollbar gutter
+	target := width - mainPx(4) // visible rows fit; no scrollbar gutter
 	var actual [6]int
 	for i := range actual {
 		v, _, _ := send.Call(connectionTable, 0x101d, uintptr(i), 0)
@@ -443,7 +469,7 @@ func fitColumns(width int) {
 		columnReference = actual
 		columnReferenceReady = true
 	}
-	sizes := fitColumnWidths(columnReference, target)
+	sizes := fitColumnWidthsScaled(columnReference, target, mainScale)
 	for i, n := range sizes {
 		send.Call(connectionTable, 0x101e, uintptr(i), uintptr(n))
 	}
@@ -457,7 +483,7 @@ func fitColumns(width int) {
 // Read the native geometry rather than assuming that the image-list height
 // equals the final report-row height (Windows may add padding).
 func tableGeometry() (height, header, row int) {
-	header, row = 34, 32
+	header, row = mainPx(34), mainPx(32)
 	if connectionTable == 0 {
 		return
 	}
@@ -480,12 +506,12 @@ func tableGeometry() (height, header, row int) {
 }
 func tableCapacity() int {
 	h, header, row := tableGeometry()
-	n := visibleRowCount(h, header, row)
+	n := visibleRowCount(h-mainPx(tableBottomMargin)+tableBottomMargin, header, row)
 	// No native item should be even partially clipped, including while the
 	// user is dragging the window and before the next traffic update.
 	return n
 }
 func expandedMinimum() int {
 	_, header, row := tableGeometry()
-	return max(minExpandedHeight, connectionTableInset+minTableHeight(header, row))
+	return max(mainPx(minExpandedHeight),mainPx(connectionTableInset)+minTableHeight(header,row)-tableBottomMargin+mainPx(tableBottomMargin))
 }

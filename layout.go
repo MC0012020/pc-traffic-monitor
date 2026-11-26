@@ -3,7 +3,11 @@ package main
 // Fit the connection table to the available width while preserving user-selected
 // proportions above readable minimums. Rounding residue goes to the address column.
 func fitColumnWidths(reference [6]int, target int) [6]int {
-	minimum := [6]int{75, 110, 52, 70, 70, 78}
+ return fitColumnWidthsScaled(reference,target,100)
+}
+func fitColumnWidthsScaled(reference [6]int,target,scale int)[6]int {
+ minimum := [6]int{75,110,52,70,70,78}
+ for i:=range minimum{minimum[i]=floatScaled(minimum[i],scale)}
 	weights := [6]int{}
 	minSum, totalWeight := 0, 0
 	for i, v := range reference {
@@ -84,3 +88,7 @@ func floatDimensionsScaled(left,right,percent int)(width,divider,rightX int){
  return
 }
 func dragExceeded(dx, dy int32) bool { return dx > 4 || dx < -4 || dy > 4 || dy < -4 }
+
+// Convert signed offsets with symmetric rounding (icons have negative offsets).
+func scaledOffset(v,scale int)int{if v<0{return -floatScaled(-v,scale)};return floatScaled(v,scale)}
+func scaleBetween(v,oldScale,newScale int)int{if oldScale<=0{oldScale=100};return (v*newScale+oldScale/2)/oldScale}

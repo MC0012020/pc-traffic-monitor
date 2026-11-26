@@ -273,15 +273,15 @@ func drawUpdateIcon(dc uintptr,r rect32){
  if updateBusy {
   p:=updateProgress.Load(); label:="…";percent:=0
   if p!=nil&&p.total>0{percent=downloadPercent(p.received,p.total);label=fmt.Sprintf("%d%%",percent)}
-  floatText(dc,label,int(r.L),int(r.T),int(r.R-r.L),int(r.B-r.T)-3,smallFont,green)
-  floatLine(dc,int(r.L)+5,int(r.B)-5,int(r.R-r.L)-10,2,lineBrush)
-  if percent>0{floatLine(dc,int(r.L)+5,int(r.B)-5,(int(r.R-r.L)-10)*percent/100,2,greenBrush)}
+  floatText(dc,label,int(r.L),int(r.T),int(r.R-r.L),int(r.B-r.T)-mainPx(3),smallFont,green)
+  floatLine(dc,int(r.L)+mainPx(5),int(r.B)-mainPx(5),int(r.R-r.L)-mainPx(10),mainPx(2),lineBrush)
+  if percent>0{floatLine(dc,int(r.L)+mainPx(5),int(r.B)-mainPx(5),(int(r.R-r.L)-mainPx(10))*percent/100,mainPx(2),greenBrush)}
   return
  }
  x,y:=(r.L+r.R)/2,(r.T+r.B)/2
- pen,_,_:=gdi.NewProc("CreatePen").Call(0,2,green);old,_,_:=gdi.NewProc("SelectObject").Call(dc,pen)
- pts:=[]point{{x-6,y-2},{x,y-8},{x+6,y-2}};gdi.NewProc("Polyline").Call(dc,uintptr(unsafe.Pointer(&pts[0])),3)
- gdi.NewProc("MoveToEx").Call(dc,uintptr(x),uintptr(y-8),0);gdi.NewProc("LineTo").Call(dc,uintptr(x),uintptr(y+4))
- pts=[]point{{x-7,y+3},{x-7,y+8},{x+7,y+8},{x+7,y+3}};gdi.NewProc("Polyline").Call(dc,uintptr(unsafe.Pointer(&pts[0])),4)
+ pen,_,_:=gdi.NewProc("CreatePen").Call(0,uintptr(mainPx(2)),green);old,_,_:=gdi.NewProc("SelectObject").Call(dc,pen)
+ pts:=[]point{{x-mainOffset(6),y-mainOffset(2)},{x,y-mainOffset(8)},{x+mainOffset(6),y-mainOffset(2)}};gdi.NewProc("Polyline").Call(dc,uintptr(unsafe.Pointer(&pts[0])),3)
+ gdi.NewProc("MoveToEx").Call(dc,uintptr(x),uintptr(y-mainOffset(8)),0);gdi.NewProc("LineTo").Call(dc,uintptr(x),uintptr(y+mainOffset(4)))
+ pts=[]point{{x-mainOffset(7),y+mainOffset(3)},{x-mainOffset(7),y+mainOffset(8)},{x+mainOffset(7),y+mainOffset(8)},{x+mainOffset(7),y+mainOffset(3)}};gdi.NewProc("Polyline").Call(dc,uintptr(unsafe.Pointer(&pts[0])),4)
  gdi.NewProc("SelectObject").Call(dc,old);gdi.NewProc("DeleteObject").Call(pen)
 }

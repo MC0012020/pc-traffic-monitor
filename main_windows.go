@@ -59,6 +59,18 @@ var metricLabels [2][5]uintptr
 var layoutReady bool
 var lastTableWidth int
 var lastVisibleCapacity = -1
+var mainScale = 100
+var mainSizing, mainRescaling bool
+func mainPx(v int) int {return floatScaled(v,mainScale)}
+func mainOffset(v int) int32 {return int32(scaledOffset(v,mainScale))}
+func mainMonitorScale() (int,rect32) {
+ m,_,_:=user.NewProc("MonitorFromWindow").Call(mainWindow,2)
+ mi:=monitorInfo{Size:uint32(unsafe.Sizeof(monitorInfo{}))}
+ if r,_,_:=user.NewProc("GetMonitorInfoW").Call(m,uintptr(unsafe.Pointer(&mi)));r!=0 {
+  return floatResolutionScale(int(mi.Monitor.R-mi.Monitor.L),int(mi.Monitor.B-mi.Monitor.T)),mi.Work
+ }
+ return mainScale,workArea(mainWindow)
+}
 
 const orange = 0x307AC7
 const green = 0x728C13
@@ -142,7 +154,7 @@ func read(h uintptr) string {
 func ctrl(class, label string, style uint32, x, y, w, h int, id int, f uintptr) uintptr {
 	c, _ := syscall.UTF16PtrFromString(class)
 	l, _ := syscall.UTF16PtrFromString(label)
-	r, _, _ := createWindow.Call(0, uintptr(unsafe.Pointer(c)), uintptr(unsafe.Pointer(l)), uintptr(style|wsChild|wsVisible), uintptr(x), uintptr(y), uintptr(w), uintptr(h), mainWindow, uintptr(id), instance, 0)
+	r, _, _ := createWindow.Call(0, uintptr(unsafe.Pointer(c)), uintptr(unsafe.Pointer(l)), uintptr(style|wsChild|wsVisible), uintptr(mainPx(x)), uintptr(mainPx(y)), uintptr(mainPx(w)), uintptr(mainPx(h)), mainWindow, uintptr(id), instance, 0)
 	runtime.KeepAlive(c)
 	runtime.KeepAlive(l)
 	if f == 0 {
@@ -205,27 +217,25 @@ func layoutWindow() {
 	if w < 1 || h < 1 {
 		return
 	}
-	moveControl(status, 16, headerY, w-126, headerH)
-	moveControl(topButton, w-57, headerY, 40, headerH)
-	moveControl(updateButton, w-103, headerY, 40, headerH)
-	moveControl(horizontalLine, 16, 45, w-32, 1)
-	moveControl(verticalLine, w/2, 59, 1, 105)
-	for i := 0; i < 2; i++ {
-		x, width := 20, w/2-40
-		if i == 1 {
-			x = w/2 + 8
-			width = w - x - 32
-		}
-		a := metricLabels[i]
-		moveControl(a[0], x, 56, width, 21)
-		moveControl(a[1], x, 79, width, 39)
-		moveControl(a[2], x, 121, width, 22)
-		moveControl(a[3], x, 144, 56, 27)
-		moveControl(a[4], x+60, 144, width-60, 27)
+	p:=mainPx
+	moveControl(status,p(16),p(headerY),w-p(126),p(headerH))
+	moveControl(topButton,w-p(57),p(headerY),p(40),p(headerH))
+	moveControl(updateButton,w-p(103),p(headerY),p(40),p(headerH))
+	moveControl(horizontalLine,p(16),p(45),w-p(32),p(1))
+	moveControl(verticalLine,w/2,p(59),p(1),p(105))
+	for i:=0;i<2;i++{
+		x,width:=p(20),w/2-p(40)
+		if i==1{x=w/2+p(8);width=w-x-p(32)}
+		a:=metricLabels[i]
+		moveControl(a[0],x,p(56),width,p(21))
+		moveControl(a[1],x,p(79),width,p(39))
+		moveControl(a[2],x,p(121),width,p(22))
+		moveControl(a[3],x,p(144),p(56),p(27))
+		moveControl(a[4],x+p(60),p(144),width-p(60),p(27))
 	}
-	tw := w - 32
-	for _, v := range tableControls {
-		moveControl(v, 16, connectionTableY, tw, h-connectionTableInset)
+	tw:=w-p(32)
+	for _,v:=range tableControls{
+		moveControl(v,p(16),p(connectionTableY),tw,h-p(connectionTableInset))
 	}
 	if tw != lastTableWidth {
 		fitColumns(tw)
@@ -239,21 +249,27 @@ func layoutWindow() {
 }
 func resizeClient(height int) {
 	w, _ := clientSize()
-	if w < 600 {
-		w = 704
+	if mainScale!=100 || w < mainPx(600) {
+		w = mainPx(704)
 	}
 	r := rect32{0, 0, int32(w), int32(height)}
 	user.NewProc("AdjustWindowRectEx").Call(uintptr(unsafe.Pointer(&r)), windowStyle, 0, 0)
-	setPos.Call(mainWindow, 0, 0, 0, uintptr(r.R-r.L), uintptr(r.B-r.T), 0x0002|0x0004|0x0010)
+	_,area:=mainMonitorScale()
+	ow,oh:=int(r.R-r.L),int(r.B-r.T)
+	var current rect32
+	user.NewProc("GetWindowRect").Call(mainWindow,uintptr(unsafe.Pointer(&current)))
+	if area.R>area.L&&area.B>area.T{ow=min(ow,int(area.R-area.L));oh=min(oh,int(area.B-area.T))}
+	p:=clampPoint(point{current.L,current.T},ow,oh,area)
+	setPos.Call(mainWindow,0,uintptr(p.X),uintptr(p.Y),uintptr(ow),uintptr(oh),0x0004|0x0010)
 }
 
 var lastRows []RecentRow
 
 func initControls() {
-	font = makeFont(14, 400)
-	largeFont = makeFont(20, 600)
-	numberFont = makeFont(30, 700)
-	smallFont = makeFont(13, 400)
+	font = makeFont(mainPx(14), 400)
+	largeFont = makeFont(mainPx(20), 600)
+	numberFont = makeFont(mainPx(30), 700)
+	smallFont = makeFont(mainPx(13), 400)
 	floatFont = makeFontQuality(17, 600, 4)
 	floatDayFont = makeFontQuality(12, 500, 4)
 	// Keep status and both header buttons on the same vertical centerline.
@@ -289,6 +305,45 @@ func initControls() {
 	layoutReady = true
 	layoutWindow()
 	renderRows(nil, Update{})
+}
+// Rebuild native GDI fonts only when the main window changes monitors.
+// Window dimensions scale from the previous client size; maximized windows
+// keep their native state. All operations run on the window thread.
+func syncMainScale(){
+ if !layoutReady||mainSizing||mainRescaling||currentDisplay!=displayFull{return}
+ scale,area:=mainMonitorScale()
+ if scale==mainScale{return}
+ if r,_,_:=user.NewProc("IsIconic").Call(mainWindow);r!=0{return}
+ mainRescaling=true;defer func(){mainRescaling=false}()
+ hideButtonTip()
+ oldScale:=mainScale
+ w,h:=clientSize()
+ next:=[4]uintptr{makeFont(floatScaled(14,scale),400),makeFont(floatScaled(20,scale),600),makeFont(floatScaled(30,scale),700),makeFont(floatScaled(13,scale),400)}
+ for _,f:=range next{if f==0{for _,v:=range next{if v!=0{gdi.NewProc("DeleteObject").Call(v)}};return}}
+ old:=[4]uintptr{font,largeFont,numberFont,smallFont}
+ mainScale=scale
+ font,largeFont,numberFont,smallFont=next[0],next[1],next[2],next[3]
+ send.Call(status,wmSetFont,smallFont,0)
+ for _,v:=range []uintptr{topButton,updateButton,horizontalLine,verticalLine}{if v!=0{send.Call(v,wmSetFont,font,0)}}
+ for _,a:=range metricLabels{for i,v:=range a{if v!=0{f:=font;switch i{case 1:f=numberFont;case 3:f=smallFont;case 4:f=largeFont};send.Call(v,wmSetFont,f,0)}}}
+ for _,v:=range tableControls{send.Call(v,wmSetFont,font,0)}
+ rescaleConnectionTable(oldScale)
+ for _,v:=range old{if v!=0{gdi.NewProc("DeleteObject").Call(v)}}
+ lastTableWidth=0;lastVisibleCapacity=-1
+ if zoom,_,_:=user.NewProc("IsZoomed").Call(mainWindow);zoom==0{
+  w=max(mainPx(600),scaleBetween(w,oldScale,scale))
+  h=max(expandedMinimum(),scaleBetween(h,oldScale,scale))
+  r:=rect32{0,0,int32(w),int32(h)}
+  user.NewProc("AdjustWindowRectEx").Call(uintptr(unsafe.Pointer(&r)),windowStyle,0,0)
+  ow,oh:=int(r.R-r.L),int(r.B-r.T)
+  if area.R>area.L&&area.B>area.T{ow=min(ow,int(area.R-area.L));oh=min(oh,int(area.B-area.T))}
+  var current rect32
+  user.NewProc("GetWindowRect").Call(mainWindow,uintptr(unsafe.Pointer(&current)))
+  p:=clampPoint(point{current.L,current.T},ow,oh,area)
+  setPos.Call(mainWindow,0,uintptr(p.X),uintptr(p.Y),uintptr(ow),uintptr(oh),0x0004|0x0010)
+ }
+ layoutWindow()
+ user.NewProc("RedrawWindow").Call(mainWindow,0,0,0x0085)
 }
 func seenText(r RecentRow, now time.Time) string {
 	if r.Active {
@@ -552,11 +607,16 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		if l != 0 {
 			mm := (*minMaxInfo)(unsafe.Pointer(l))
 			height := expandedMinimum()
-			r := rect32{0, 0, 600, int32(height)}
+			r := rect32{0, 0, int32(mainPx(600)), int32(height)}
 			user.NewProc("AdjustWindowRectEx").Call(uintptr(unsafe.Pointer(&r)), windowStyle, 0, 0)
 			mm.MinTrack = point{r.R - r.L, r.B - r.T}
 		}
 		return 0
+	case 0x0231: // WM_ENTERSIZEMOVE
+		mainSizing=true
+	case 0x0232: // WM_EXITSIZEMOVE
+		mainSizing=false
+		syncMainScale()
 	case 5: // WM_SIZE, including maximize and restore
 		if w != 1 && layoutReady {
 
@@ -566,7 +626,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	case 0x8002: // Column drag ended; restore a scrollbar-free fit.
 		if layoutReady {
 			w, _ := clientSize()
-			fitColumns(w - 32)
+			fitColumns(w - mainPx(32))
 		}
 		return 0
 	case 0x004e: // WM_NOTIFY: list view custom drawing
@@ -593,7 +653,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		old, _, _ := gdi.NewProc("SelectObject").Call(d.DC, fill)
 		pen, _, _ := gdi.NewProc("GetStockObject").Call(8)
 		oldPen, _, _ := gdi.NewProc("SelectObject").Call(d.DC, pen)
-		gdi.NewProc("RoundRect").Call(d.DC, uintptr(r.L), uintptr(r.T), uintptr(r.R), uintptr(r.B), 12, 12)
+		gdi.NewProc("RoundRect").Call(d.DC, uintptr(r.L), uintptr(r.T), uintptr(r.R), uintptr(r.B), uintptr(mainPx(12)), uintptr(mainPx(12)))
 		gdi.NewProc("SelectObject").Call(d.DC, old)
 		gdi.NewProc("SelectObject").Call(d.DC, oldPen)
 		if d.Hwnd == updateButton {
@@ -652,6 +712,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
+		syncMainScale()
 		pollUpdateUI()
 		select {
 		case u := <-updates:
@@ -772,6 +833,7 @@ func main() {
 		msg("窗口创建失败：" + e.Error())
 		return
 	}
+	mainScale,_=mainMonitorScale()
 	initControls()
 	resizeClient(expandedMinimum())
 	setTop()

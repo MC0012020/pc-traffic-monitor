@@ -76,12 +76,12 @@ func drawPinIcon(dc uintptr, r rect32, on bool) {
 	if on {
 		c = green
 	}
-	pen, _, _ := gdi.NewProc("CreatePen").Call(0, 1, c)
+	pen, _, _ := gdi.NewProc("CreatePen").Call(0, uintptr(mainPx(1)), c)
 	old, _, _ := gdi.NewProc("SelectObject").Call(dc, pen)
-	outline := []point{{x - 4, y - 8}, {x + 4, y - 8}, {x + 3, y - 5}, {x + 3, y - 1}, {x + 6, y + 2}, {x + 6, y + 3}, {x - 6, y + 3}, {x - 6, y + 2}, {x - 3, y - 1}, {x - 3, y - 5}, {x - 4, y - 8}}
+	outline := []point{{x - mainOffset(4), y - mainOffset(8)}, {x + mainOffset(4), y - mainOffset(8)}, {x + mainOffset(3), y - mainOffset(5)}, {x + mainOffset(3), y - mainOffset(1)}, {x + mainOffset(6), y + mainOffset(2)}, {x + mainOffset(6), y + mainOffset(3)}, {x - mainOffset(6), y + mainOffset(3)}, {x - mainOffset(6), y + mainOffset(2)}, {x - mainOffset(3), y - mainOffset(1)}, {x - mainOffset(3), y - mainOffset(5)}, {x - mainOffset(4), y - mainOffset(8)}}
 	gdi.NewProc("Polyline").Call(dc, uintptr(unsafe.Pointer(&outline[0])), uintptr(len(outline)))
-	gdi.NewProc("MoveToEx").Call(dc, uintptr(x), uintptr(y+3), 0)
-	gdi.NewProc("LineTo").Call(dc, uintptr(x), uintptr(y+10))
+	gdi.NewProc("MoveToEx").Call(dc, uintptr(x), uintptr(y+mainOffset(3)), 0)
+	gdi.NewProc("LineTo").Call(dc, uintptr(x), uintptr(y+mainOffset(10)))
 	gdi.NewProc("SelectObject").Call(dc, old)
 	gdi.NewProc("DeleteObject").Call(pen)
 	runtime.KeepAlive(outline)

@@ -76,3 +76,13 @@ func TestFloatResolutionScaling(t *testing.T){
   if floatScaled(floatSpeedY+floatSpeedH,scale)>floatScaled(floatDayY,scale)||floatScaled(floatDayY+floatDayH,scale)>floatScaled(floatHeight,scale){t.Fatal("row overlap",tc)}
  }
 }
+
+func TestMainResolutionScale(t *testing.T){
+ for _,scale:=range []int{100,133,200}{
+  px:=func(v int)int{return floatScaled(v,scale)}
+  if px(56)+px(21)>px(79)||px(79)+px(39)>px(121)||px(144)+px(27)>px(connectionTableY){t.Fatal("overlapping metrics",scale)}
+  w:=px(704)-px(32);ref:=[6]int{px(112),px(182),px(64),px(98),px(98),px(96)};cols:=fitColumnWidthsScaled(ref,w-px(4),scale)
+  sum:=0;for i,n:=range cols{sum+=n;if n<px(([6]int{75,110,52,70,70,78})[i]){t.Fatal("column below minimum",scale,cols)}};if sum!=w-px(4){t.Fatal("column total",scale,sum,w)}
+  if scaledOffset(-8,scale)!=-px(8)||scaleBetween(704,100,scale)!=px(704){t.Fatal("scale arithmetic",scale)}
+ }
+}
