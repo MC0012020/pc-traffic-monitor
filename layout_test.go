@@ -86,3 +86,13 @@ func TestMainResolutionScale(t *testing.T){
   if scaledOffset(-8,scale)!=-px(8)||scaleBetween(704,100,scale)!=px(704){t.Fatal("scale arithmetic",scale)}
  }
 }
+
+func TestFullscreenOverlayVisibility(t *testing.T){
+ if !coversMonitor(0,0,1920,1080,0,0,1920,1080)||!coversMonitor(-2560,0,0,1600,-2560,0,0,1600){t.Fatal("fullscreen not detected")}
+ if coversMonitor(0,0,1920,1040,0,0,1920,1080)||coversMonitor(0,0,1920,1080,1920,0,4480,1600){t.Fatal("ordinary window or other monitor")}
+ hidden,n:=fullscreenVisibility(false,true,0);if !hidden||n!=0{t.Fatal("hide immediately")}
+ for i:=0;i<3;i++{hidden,n=fullscreenVisibility(hidden,false,n);if !hidden{t.Fatal("premature restore")}}
+ hidden,n=fullscreenVisibility(hidden,true,n);if !hidden||n!=0{t.Fatal("reset on fullscreen")}
+ for i:=0;i<4;i++{hidden,n=fullscreenVisibility(hidden,false,n)}
+ if hidden||n!=0{t.Fatal("restore after stable desktop")}
+}

@@ -712,6 +712,7 @@ func wndProc(h uintptr, m uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
+		updateFloatGameVisibility()
 		syncMainScale()
 		pollUpdateUI()
 		select {

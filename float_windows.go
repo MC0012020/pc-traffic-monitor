@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime"
+	"time"
 	"syscall"
 	"unsafe"
 )
@@ -11,6 +12,13 @@ var floatDragging, floatMoved bool
 var floatAnchor, floatStart, floatOld point
 var floatWidth, floatDivider, floatRightX int
 var floatScale = 100
+var floatGameHidden bool
+var floatClearTicks int
+var floatClearAt time.Time
+var floatPlacedWidth,floatPlacedHeight int
+var floatPlacedAnchor point
+var floatPlaced bool
+var dwmBounds=syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmGetWindowAttribute")
 func floatPx(v int) int {return floatScaled(v,floatScale)}
 var floatLeftText, floatRightText, floatLeftDay, floatRightDay string
 
@@ -97,31 +105,83 @@ func measureFloat() {
 	floatWidth, floatDivider, floatRightX = floatDimensionsScaled(left, right,floatScale)
 	gdi.NewProc("SelectObject").Call(dc, old)
 }
+// Detect a foreground fullscreen window on the overlay's own monitor.
+func floatFullscreen() bool {
+ fg,_,_:=user.NewProc("GetForegroundWindow").Call()
+ if fg==0||fg==mainWindow||fg==floatWindow{return false}
+ desktop,_,_:=user.NewProc("GetDesktopWindow").Call()
+ shellWindow,_,_:=user.NewProc("GetShellWindow").Call()
+ if fg==desktop||fg==shellWindow{return false}
+ var cls [128]uint16
+ user.NewProc("GetClassNameW").Call(fg,uintptr(unsafe.Pointer(&cls[0])),uintptr(len(cls)))
+ switch syscall.UTF16ToString(cls[:]){case "Progman","WorkerW","Shell_TrayWnd","Shell_SecondaryTrayWnd":return false}
+ if r,_,_:=user.NewProc("IsIconic").Call(fg);r!=0{return false}
+ m:=floatMonitor()
+ mi:=monitorInfo{Size:uint32(unsafe.Sizeof(monitorInfo{}))}
+ if r,_,_:=user.NewProc("GetMonitorInfoW").Call(m,uintptr(unsafe.Pointer(&mi)));r==0{return false}
+ var r rect32
+ if dwmBounds.Find()!=nil {if ok,_,_:=user.NewProc("GetWindowRect").Call(fg,uintptr(unsafe.Pointer(&r)));ok==0{return false}} else {
+  hr,_,_:=dwmBounds.Call(fg,9,uintptr(unsafe.Pointer(&r)),unsafe.Sizeof(r))
+  if int32(hr)!=0{if ok,_,_:=user.NewProc("GetWindowRect").Call(fg,uintptr(unsafe.Pointer(&r)));ok==0{return false}}
+ }
+ q:=mi.Monitor
+ return coversMonitor(int(r.L),int(r.T),int(r.R),int(r.B),int(q.L),int(q.T),int(q.R),int(q.B))
+}
+func updateFloatGameVisibility(){
+ if currentDisplay!=displayFloat||floatWindow==0{return}
+ blocked:=floatFullscreen()
+ if !blocked&&floatGameHidden&&!floatClearAt.IsZero()&&time.Since(floatClearAt)<250*time.Millisecond{return}
+ floatClearAt=time.Now()
+ hidden,ticks:=fullscreenVisibility(floatGameHidden,blocked,floatClearTicks)
+ floatClearTicks=ticks
+ if hidden==floatGameHidden{return}
+ floatGameHidden=hidden
+ if hidden{
+  if floatDragging{floatDragging=false;user.NewProc("ReleaseCapture").Call()}
+  showWindow.Call(floatWindow,0)
+ }else{
+  refreshFloat()
+  floatPlace()
+ }
+}
 func floatPlace() {
-	if floatWindow == 0 {
-		return
-	}
-	m:=floatMonitor()
-	if syncFloatScale(m){measureFloat()}
-	area:=monitorWork(m)
-	height:=floatPx(floatHeight)
-	floatAnchor=clampPoint(floatAnchor,floatWidth,height,area)
-	setPos.Call(floatWindow,^uintptr(0),uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),0x0010|0x0040)
-	region,_,_:=gdi.NewProc("CreateRoundRectRgn").Call(0,0,uintptr(floatWidth+1),uintptr(height+1),uintptr(floatPx(12)),uintptr(floatPx(12)))
-	if region != 0 {
-		r, _, _ := user.NewProc("SetWindowRgn").Call(floatWindow, region, 1)
-		if r == 0 {
-			gdi.NewProc("DeleteObject").Call(region)
-		}
-	}
-	invalidateFloat()
+ if floatWindow==0||floatGameHidden{return}
+ if floatFullscreen(){
+  floatGameHidden=true;floatClearTicks=0;floatClearAt=time.Now()
+  showWindow.Call(floatWindow,0)
+  return
+ }
+ m:=floatMonitor()
+ if syncFloatScale(m){measureFloat()}
+ area:=monitorWork(m)
+ height:=floatPx(floatHeight)
+ floatAnchor=clampPoint(floatAnchor,floatWidth,height,area)
+ resized:=!floatPlaced||floatPlacedWidth!=floatWidth||floatPlacedHeight!=height
+ moved:=!floatPlaced||floatPlacedAnchor!=floatAnchor
+ shown,_,_:=user.NewProc("IsWindowVisible").Call(floatWindow)
+ // Topmost is established by the window's creation style. Do not reassert
+ // HWND_TOPMOST, activate, or show a visible window during periodic refresh.
+ if resized||moved||shown==0{
+  flags:=uintptr(0x0004|0x0010|0x0200) // NOZORDER | NOACTIVATE | NOOWNERZORDER
+  if !resized{flags|=0x0001}
+  if !moved{flags|=0x0002}
+  if shown==0{flags|=0x0040}
+  if ok,_,_:=setPos.Call(floatWindow,0,uintptr(floatAnchor.X),uintptr(floatAnchor.Y),uintptr(floatWidth),uintptr(height),flags);ok==0{return}
+  floatPlacedWidth,floatPlacedHeight,floatPlacedAnchor,floatPlaced=floatWidth,height,floatAnchor,true
+ }
+ if resized{
+  region,_,_:=gdi.NewProc("CreateRoundRectRgn").Call(0,0,uintptr(floatWidth+1),uintptr(height+1),uintptr(floatPx(12)),uintptr(floatPx(12)))
+  if region!=0{if ok,_,_:=user.NewProc("SetWindowRgn").Call(floatWindow,region,1);ok==0{gdi.NewProc("DeleteObject").Call(region)}}
+ }
+ invalidateFloat()
 }
 func invalidateFloat() {
-	if floatWindow != 0 {
+	if floatWindow != 0 && !floatGameHidden {
 		user.NewProc("InvalidateRect").Call(floatWindow, 0, 0)
 	}
 }
 func refreshFloat() {
+	if floatGameHidden{return}
 	l, r := cachedText[proxyDown], cachedText[directDown]
 	if l == "" {
 		l = "—"
@@ -175,11 +235,14 @@ func enterFloating() {
 	currentDisplay = displayFloat
 	floatDragging = false
 	floatMoved = false
+	floatGameHidden=false;floatClearTicks=0
 	showWindow.Call(mainWindow, 0)
+	updateFloatGameVisibility()
 	refreshFloat()
 	floatPlace()
 }
 func hideFloat() {
+	floatGameHidden=false;floatClearTicks=0
 	if floatDragging {
 		floatDragging = false
 		user.NewProc("ReleaseCapture").Call()
@@ -193,6 +256,7 @@ func destroyFloat() {
 	if floatWindow != 0 {
 		user.NewProc("DestroyWindow").Call(floatWindow)
 		floatWindow = 0
+		floatPlaced=false
 	}
 }
 func floatText(dc uintptr, s string, x, y, w, h int, f, c uintptr) {

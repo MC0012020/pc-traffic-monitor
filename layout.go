@@ -92,3 +92,17 @@ func dragExceeded(dx, dy int32) bool { return dx > 4 || dx < -4 || dy > 4 || dy 
 // Convert signed offsets with symmetric rounding (icons have negative offsets).
 func scaledOffset(v,scale int)int{if v<0{return -floatScaled(-v,scale)};return floatScaled(v,scale)}
 func scaleBetween(v,oldScale,newScale int)int{if oldScale<=0{oldScale=100};return (v*newScale+oldScale/2)/oldScale}
+
+ // Fullscreen detection uses the monitor's full bounds, not the work area.
+ // A small tolerance accommodates invisible native window borders.
+ func coversMonitor(l,t,r,b,ml,mt,mr,mb int)bool{
+  return r>l&&b>t&&mr>ml&&mb>mt&&l<=ml+2&&t<=mt+2&&r>=mr-2&&b>=mb-2
+ }
+ // Hide immediately; require a stable non-fullscreen foreground before restoring.
+ func fullscreenVisibility(hidden,blocked bool,clearTicks int)(bool,int){
+  if blocked{return true,0}
+  if !hidden{return false,0}
+  clearTicks++
+  if clearTicks>=4{return false,0}
+  return true,clearTicks
+ }
